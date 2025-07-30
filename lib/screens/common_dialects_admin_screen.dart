@@ -516,46 +516,6 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
           Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.04),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    TextWidget(
-                      text: 'Interactive Map Integration',
-                      fontSize: 22,
-                      color: black,
-                      fontFamily: 'Bold',
-                      align: TextAlign.left,
-                    ),
-                    const Spacer(),
-                    Icon(Icons.map, color: primary, size: 32),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Container(
-                  height: 220,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: primary.withOpacity(0.2)),
-                  ),
-                  child: const Center(
-                    child: Text(
-                        'Map showing dialects per town (integration placeholder)'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 40),
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
               color: Colors.green.withOpacity(0.04),
               borderRadius: BorderRadius.circular(12),
             ),
