@@ -37,6 +37,11 @@ dependencies:
   intl:
   fluttertoast:
   fl_chart: ^0.66.0
+  firebase_core:
+  cloud_firestore:
+  firebase_storage:
+  firebase_auth:
+  firebase_database:
 
 dev_dependencies:
   flutter_test:
