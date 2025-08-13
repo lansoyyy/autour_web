@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:autour_web/utils/colors.dart';
 import 'package:autour_web/widgets/text_widget.dart';
 import 'package:autour_web/widgets/button_widget.dart';
 import 'package:autour_web/widgets/textfield_widget.dart';
+
+final FirebaseFirestore firestore = FirebaseFirestore.instance;
 
 class Business {
   String name;
@@ -48,6 +51,8 @@ class LocalBusinessesAdminScreen extends StatefulWidget {
 
 class _LocalBusinessesAdminScreenState
     extends State<LocalBusinessesAdminScreen> {
+  final CollectionReference businessesRef = firestore.collection('businesses');
+
   final List<String> categories = [
     'All',
     'Accommodations',
@@ -61,51 +66,90 @@ class _LocalBusinessesAdminScreenState
   String selectedCategory = 'All';
   final TextEditingController searchController = TextEditingController();
   String searchQuery = '';
+  List<Business> businesses = [];
+  List<String> businessIds = [];
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
 
-  final List<Business> businesses = [
-    Business(
-      name: 'Baler Beach Resort',
-      category: 'Accommodations',
-      location: 'Baler, Aurora',
-      description: 'Cozy beachfront resort with accessible rooms.',
-      phone: '09751000896',
-      email: 'baler.eco@gmail.com.ph',
-      hours: '8:00AM - 5:00PM',
-      roomsAvailable: 12,
-      totalRooms: 25,
-      roomTypes: ['Standard', 'Deluxe', 'Suite'],
-      priceRange: '₱2,500 - ₱8,000',
-    ),
-    Business(
-      name: 'Aurora Eats',
-      category: 'Restaurants',
-      location: 'Maria Aurora, Aurora',
-      description: 'Local cuisine with vegan options.',
-      phone: '09751000896',
-      email: 'baler.eco@gmail.com.ph',
-      hours: '8:00AM - 5:00PM',
-    ),
-  ];
-
-  List<Business> get filteredBusinesses {
-    return businesses.where((business) {
-      final matchesCategory =
-          selectedCategory == 'All' || business.category == selectedCategory;
-      final matchesSearch = business.name
-              .toLowerCase()
-              .contains(searchQuery.toLowerCase()) ||
-          business.description
-              .toLowerCase()
-              .contains(searchQuery.toLowerCase()) ||
-          business.location.toLowerCase().contains(searchQuery.toLowerCase());
-      return matchesCategory && matchesSearch;
-    }).toList();
+  void _setupFirestoreListener() {
+    businessesRef.snapshots().listen((snapshot) {
+      setState(() {
+        businesses = snapshot.docs.map((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          return Business(
+            name: data['name'],
+            category: data['category'],
+            location: data['location'],
+            description: data['description'],
+            phone: data['phone'],
+            email: data['email'],
+            hours: data['hours'],
+            roomsAvailable: data['roomsAvailable'],
+            totalRooms: data['totalRooms'],
+            roomTypes: data['roomTypes']?.cast<String>(),
+            priceRange: data['priceRange'],
+            prices: data['prices']?.cast<String, dynamic>(),
+            fares: data['fares']?.cast<String, dynamic>(),
+            image: data['image'],
+          );
+        }).toList();
+        businessIds = snapshot.docs.map((doc) => doc.id).toList();
+      });
+    });
   }
 
-  void _showBusinessDialog({Business? business, int? index}) {
+  Future<void> addBusiness(Business business) async {
+    await businessesRef.add({
+      'name': business.name,
+      'category': business.category,
+      'location': business.location,
+      'description': business.description,
+      'phone': business.phone,
+      'email': business.email,
+      'hours': business.hours,
+      'roomsAvailable': business.roomsAvailable,
+      'totalRooms': business.totalRooms,
+      'roomTypes': business.roomTypes,
+      'priceRange': business.priceRange,
+      'prices': business.prices,
+      'fares': business.fares,
+      'image': business.image,
+    });
+  }
+
+  Future<void> updateBusiness(String id, Business business) async {
+    await businessesRef.doc(id).update({
+      'name': business.name,
+      'category': business.category,
+      'location': business.location,
+      'description': business.description,
+      'phone': business.phone,
+      'email': business.email,
+      'hours': business.hours,
+      'roomsAvailable': business.roomsAvailable,
+      'totalRooms': business.totalRooms,
+      'roomTypes': business.roomTypes,
+      'priceRange': business.priceRange,
+      'prices': business.prices,
+      'fares': business.fares,
+      'image': business.image,
+    });
+  }
+
+  Future<void> deleteBusiness(String id) async {
+    try {
+      await businessesRef.doc(id).delete();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error deleting business: ${e.toString()}')),
+      );
+    }
+  }
+
+  void _showBusinessDialog({Business? business, String? id}) {
     final nameController = TextEditingController(text: business?.name ?? '');
-    final categoryController =
-        TextEditingController(text: business?.category ?? '');
+    String selectedCategory = business?.category ??
+        categories[1]; // Default to first non-'All' category
     final locationController =
         TextEditingController(text: business?.location ?? '');
     final descriptionController =
@@ -121,6 +165,15 @@ class _LocalBusinessesAdminScreenState
         TextEditingController(text: business?.roomTypes?.join(', ') ?? '');
     final priceRangeController =
         TextEditingController(text: business?.priceRange ?? '');
+    final faresController =
+        TextEditingController(text: business?.fares?.toString() ?? '');
+    final pricesController = TextEditingController(
+      text: business?.prices?.entries
+              .map((e) =>
+                  '${e.key}: ${e.value.entries.map((v) => '${v.key}=${v.value}').join(',')}|')
+              .join('') ??
+          '',
+    );
     final imageController = TextEditingController(text: business?.image ?? '');
     final formKey = GlobalKey<FormState>();
 
@@ -133,124 +186,193 @@ class _LocalBusinessesAdminScreenState
           color: primary,
           fontFamily: 'Bold',
         ),
-        content: SizedBox(
-          width: 400,
-          child: Form(
-            key: formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFieldWidget(
-                    label: 'Business Name',
-                    controller: nameController,
-                    borderColor: primary,
-                    hintColor: grey,
-                    width: 350,
-                    height: 60,
-                    radius: 10,
-                    hasValidator: true,
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Enter business name'
-                        : null,
-                  ),
-                  TextFieldWidget(
-                    label: 'Category',
-                    controller: categoryController,
-                    borderColor: primary,
-                    hintColor: grey,
-                    width: 350,
-                    height: 60,
-                    radius: 10,
-                    hasValidator: true,
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Enter category'
-                        : null,
-                  ),
-                  TextFieldWidget(
-                    label: 'Location',
-                    controller: locationController,
-                    borderColor: primary,
-                    hintColor: grey,
-                    width: 350,
-                    height: 60,
-                    radius: 10,
-                    hasValidator: true,
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Enter location'
-                        : null,
-                  ),
-                  TextFieldWidget(
-                    label: 'Description',
-                    controller: descriptionController,
-                    borderColor: primary,
-                    hintColor: grey,
-                    width: 350,
-                    height: 60,
-                    radius: 10,
-                    hasValidator: true,
-                    validator: (value) => value == null || value.isEmpty
-                        ? 'Enter description'
-                        : null,
-                  ),
-                  TextFieldWidget(
-                    label: 'Phone',
-                    controller: phoneController,
-                    borderColor: primary,
-                    hintColor: grey,
-                    width: 350,
-                    height: 60,
-                    radius: 10,
-                    hasValidator: false,
-                  ),
-                  TextFieldWidget(
-                    label: 'Email',
-                    controller: emailController,
-                    borderColor: primary,
-                    hintColor: grey,
-                    width: 350,
-                    height: 60,
-                    radius: 10,
-                    hasValidator: false,
-                  ),
-                  TextFieldWidget(
-                    label: 'Business Hours',
-                    controller: hoursController,
-                    borderColor: primary,
-                    hintColor: grey,
-                    width: 350,
-                    height: 60,
-                    radius: 10,
-                    hasValidator: false,
-                  ),
-                  // Accommodation fields
-                  if (categoryController.text == 'Accommodations' ||
-                      business?.category == 'Accommodations') ...[
+        content: StatefulBuilder(builder: (context, setState) {
+          return SizedBox(
+            width: 400,
+            child: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                     TextFieldWidget(
-                      label: 'Rooms Available',
-                      controller: roomsAvailableController,
+                      label: 'Business Name',
+                      controller: nameController,
+                      borderColor: primary,
+                      hintColor: grey,
+                      width: 350,
+                      height: 60,
+                      radius: 10,
+                      hasValidator: true,
+                      validator: (value) => value == null || value.isEmpty
+                          ? 'Enter business name'
+                          : null,
+                    ),
+                    SizedBox(
+                      height: 10,
+                    ),
+                    SizedBox(
+                      width: 350,
+                      height: 60,
+                      child: DropdownButtonFormField<String>(
+                        value: selectedCategory,
+                        items: categories
+                            .where((c) => c != 'All')
+                            .map((String value) {
+                          return DropdownMenuItem<String>(
+                            value: value,
+                            child: Text(value),
+                          );
+                        }).toList(),
+                        onChanged: (newValue) {
+                          setState(() {
+                            selectedCategory = newValue!;
+                          });
+                        },
+                        decoration: InputDecoration(
+                            labelText: 'Category',
+                            border: OutlineInputBorder(),
+                            filled: true,
+                            fillColor: Colors.white),
+                      ),
+                    ),
+                    if (selectedCategory == 'Accommodations')
+                      Column(
+                        children: [
+                          TextFieldWidget(
+                            label: 'Rooms Available',
+                            controller: roomsAvailableController,
+                            borderColor: primary,
+                            hintColor: grey,
+                            width: 350,
+                            height: 60,
+                            radius: 10,
+                            hasValidator: true,
+                            inputType: TextInputType.number,
+                            validator: (value) => value == null || value.isEmpty
+                                ? 'Enter rooms available'
+                                : null,
+                          ),
+                          TextFieldWidget(
+                            label: 'Total Rooms',
+                            controller: totalRoomsController,
+                            borderColor: primary,
+                            hintColor: grey,
+                            width: 350,
+                            height: 60,
+                            radius: 10,
+                            hasValidator: true,
+                            inputType: TextInputType.number,
+                            validator: (value) => value == null || value.isEmpty
+                                ? 'Enter total rooms'
+                                : null,
+                          ),
+                          TextFieldWidget(
+                            label: 'Room Types (comma separated)',
+                            controller: roomTypesController,
+                            borderColor: primary,
+                            hintColor: grey,
+                            width: 350,
+                            height: 60,
+                            radius: 10,
+                            hasValidator: false,
+                          ),
+                          TextFieldWidget(
+                            label: 'Price Range',
+                            controller: priceRangeController,
+                            borderColor: primary,
+                            hintColor: grey,
+                            width: 350,
+                            height: 60,
+                            radius: 10,
+                            hasValidator: false,
+                          ),
+                        ],
+                      )
+                    else if (selectedCategory == 'Transportation')
+                      Column(
+                        children: [
+                          TextFieldWidget(
+                            label: 'Fares (format: type:price,type:price)',
+                            controller: faresController,
+                            borderColor: primary,
+                            hintColor: grey,
+                            width: 350,
+                            height: 60,
+                            radius: 10,
+                            hasValidator: true,
+                            validator: (value) {
+                              if (value == null || value.isEmpty)
+                                return 'Enter fare details';
+                              if (!value.contains(':'))
+                                return 'Use format: type:price';
+                              return null;
+                            },
+                          ),
+                        ],
+                      )
+                    else if (selectedCategory == 'Markets')
+                      Column(
+                        children: [
+                          TextFieldWidget(
+                            label:
+                                'Prices (format: Category:Item=Price,Item=Price|Category:Item=Price)',
+                            controller: pricesController,
+                            borderColor: primary,
+                            hintColor: grey,
+                            width: 350,
+                            height: 120,
+                            radius: 10,
+                            hasValidator: true,
+                            validator: (value) {
+                              if (value == null || value.isEmpty)
+                                return 'Enter price details';
+                              if (!value.contains(':'))
+                                return 'Use format: Category:Item=Price';
+                              return null;
+                            },
+                          ),
+                        ],
+                      ),
+                    TextFieldWidget(
+                      label: 'Location',
+                      controller: locationController,
+                      borderColor: primary,
+                      hintColor: grey,
+                      width: 350,
+                      height: 60,
+                      radius: 10,
+                      hasValidator: true,
+                      validator: (value) => value == null || value.isEmpty
+                          ? 'Enter location'
+                          : null,
+                    ),
+                    TextFieldWidget(
+                      label: 'Description',
+                      controller: descriptionController,
+                      borderColor: primary,
+                      hintColor: grey,
+                      width: 350,
+                      height: 60,
+                      radius: 10,
+                      hasValidator: true,
+                      validator: (value) => value == null || value.isEmpty
+                          ? 'Enter description'
+                          : null,
+                    ),
+                    TextFieldWidget(
+                      label: 'Phone',
+                      controller: phoneController,
                       borderColor: primary,
                       hintColor: grey,
                       width: 350,
                       height: 60,
                       radius: 10,
                       hasValidator: false,
-                      inputType: TextInputType.number,
                     ),
                     TextFieldWidget(
-                      label: 'Total Rooms',
-                      controller: totalRoomsController,
-                      borderColor: primary,
-                      hintColor: grey,
-                      width: 350,
-                      height: 60,
-                      radius: 10,
-                      hasValidator: false,
-                      inputType: TextInputType.number,
-                    ),
-                    TextFieldWidget(
-                      label: 'Room Types (comma separated)',
-                      controller: roomTypesController,
+                      label: 'Email',
+                      controller: emailController,
                       borderColor: primary,
                       hintColor: grey,
                       width: 350,
@@ -259,8 +381,8 @@ class _LocalBusinessesAdminScreenState
                       hasValidator: false,
                     ),
                     TextFieldWidget(
-                      label: 'Price Range',
-                      controller: priceRangeController,
+                      label: 'Business Hours',
+                      controller: hoursController,
                       borderColor: primary,
                       hintColor: grey,
                       width: 350,
@@ -268,23 +390,23 @@ class _LocalBusinessesAdminScreenState
                       radius: 10,
                       hasValidator: false,
                     ),
+                    TextFieldWidget(
+                      label: 'Image URL',
+                      controller: imageController,
+                      borderColor: primary,
+                      hintColor: grey,
+                      width: 350,
+                      height: 60,
+                      radius: 10,
+                      hasValidator: false,
+                    ),
+                    // TODO: Add dynamic fields for prices and fares if needed
                   ],
-                  TextFieldWidget(
-                    label: 'Image URL',
-                    controller: imageController,
-                    borderColor: primary,
-                    hintColor: grey,
-                    width: 350,
-                    height: 60,
-                    radius: 10,
-                    hasValidator: false,
-                  ),
-                  // TODO: Add dynamic fields for prices and fares if needed
-                ],
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        }),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -299,51 +421,83 @@ class _LocalBusinessesAdminScreenState
             label: business == null ? 'Add' : 'Update',
             onPressed: () {
               if (formKey.currentState!.validate()) {
-                setState(() {
-                  if (business == null) {
-                    businesses.add(Business(
-                      name: nameController.text,
-                      category: categoryController.text,
-                      location: locationController.text,
-                      description: descriptionController.text,
-                      phone: phoneController.text,
-                      email: emailController.text,
-                      hours: hoursController.text,
-                      roomsAvailable:
-                          int.tryParse(roomsAvailableController.text),
-                      totalRooms: int.tryParse(totalRoomsController.text),
-                      roomTypes: roomTypesController.text.isNotEmpty
-                          ? roomTypesController.text
-                              .split(',')
-                              .map((e) => e.trim())
-                              .toList()
-                          : null,
-                      priceRange: priceRangeController.text,
-                      image: imageController.text,
-                    ));
-                  } else if (index != null) {
-                    businesses[index] = Business(
-                      name: nameController.text,
-                      category: categoryController.text,
-                      location: locationController.text,
-                      description: descriptionController.text,
-                      phone: phoneController.text,
-                      email: emailController.text,
-                      hours: hoursController.text,
-                      roomsAvailable:
-                          int.tryParse(roomsAvailableController.text),
-                      totalRooms: int.tryParse(totalRoomsController.text),
-                      roomTypes: roomTypesController.text.isNotEmpty
-                          ? roomTypesController.text
-                              .split(',')
-                              .map((e) => e.trim())
-                              .toList()
-                          : null,
-                      priceRange: priceRangeController.text,
-                      image: imageController.text,
-                    );
-                  }
-                });
+                if (business == null) {
+                  addBusiness(Business(
+                    name: nameController.text,
+                    category: selectedCategory,
+                    location: locationController.text,
+                    description: descriptionController.text,
+                    phone: phoneController.text,
+                    email: emailController.text,
+                    hours: hoursController.text,
+                    roomsAvailable: int.tryParse(roomsAvailableController.text),
+                    totalRooms: int.tryParse(totalRoomsController.text),
+                    roomTypes: roomTypesController.text.isNotEmpty
+                        ? roomTypesController.text
+                            .split(',')
+                            .map((e) => e.trim())
+                            .toList()
+                        : null,
+                    priceRange: priceRangeController.text,
+                    fares: faresController.text.isNotEmpty
+                        ? Map.fromEntries(faresController.text.split(',').map(
+                            (e) => MapEntry(e.split(':')[0].trim(),
+                                e.split(':')[1].trim())))
+                        : null,
+                    prices: pricesController.text.isNotEmpty
+                        ? Map.fromEntries(pricesController.text
+                            .split('|')
+                            .map((e) => MapEntry(
+                                e.split(':')[0].trim(),
+                                Map.fromEntries(e.split(':')[1].split(',').map(
+                                      (v) => MapEntry(v.split('=')[0].trim(),
+                                          v.split('=')[1].trim()),
+                                    )))))
+                        : null,
+                    image: imageController.text,
+                  ));
+                } else if (id != null) {
+                  updateBusiness(
+                      id,
+                      Business(
+                        name: nameController.text,
+                        category: selectedCategory,
+                        location: locationController.text,
+                        description: descriptionController.text,
+                        phone: phoneController.text,
+                        email: emailController.text,
+                        hours: hoursController.text,
+                        roomsAvailable:
+                            int.tryParse(roomsAvailableController.text),
+                        totalRooms: int.tryParse(totalRoomsController.text),
+                        roomTypes: roomTypesController.text.isNotEmpty
+                            ? roomTypesController.text
+                                .split(',')
+                                .map((e) => e.trim())
+                                .toList()
+                            : null,
+                        priceRange: priceRangeController.text,
+                        fares: faresController.text.isNotEmpty
+                            ? Map.fromEntries(faresController.text
+                                .split(',')
+                                .map((e) => MapEntry(e.split(':')[0].trim(),
+                                    e.split(':')[1].trim())))
+                            : null,
+                        prices: pricesController.text.isNotEmpty
+                            ? Map.fromEntries(pricesController.text
+                                .split('|')
+                                .map((e) => MapEntry(
+                                    e.split(':')[0].trim(),
+                                    Map.fromEntries(
+                                        e.split(':')[1].split(',').map(
+                                              (v) => MapEntry(
+                                                  v.split('=')[0].trim(),
+                                                  v.split('=')[1].trim()),
+                                            )))))
+                            : null,
+                        image: imageController.text,
+                      ));
+                }
                 Navigator.pop(context);
               }
             },
@@ -359,7 +513,7 @@ class _LocalBusinessesAdminScreenState
     );
   }
 
-  void _deleteBusiness(int index) {
+  void _deleteBusiness(String id) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -388,9 +542,7 @@ class _LocalBusinessesAdminScreenState
           ButtonWidget(
             label: 'Delete',
             onPressed: () {
-              setState(() {
-                businesses.removeAt(index);
-              });
+              deleteBusiness(id);
               Navigator.pop(context);
             },
             color: Colors.red,
@@ -408,6 +560,7 @@ class _LocalBusinessesAdminScreenState
   @override
   void initState() {
     super.initState();
+    _setupFirestoreListener();
     searchController.addListener(() {
       setState(() {
         searchQuery = searchController.text;
@@ -419,6 +572,21 @@ class _LocalBusinessesAdminScreenState
   void dispose() {
     searchController.dispose();
     super.dispose();
+  }
+
+  List<Business> get filteredBusinesses {
+    return businesses.where((business) {
+      final matchesCategory =
+          selectedCategory == 'All' || business.category == selectedCategory;
+      final matchesSearch = business.name
+              .toLowerCase()
+              .contains(searchQuery.toLowerCase()) ||
+          business.description
+              .toLowerCase()
+              .contains(searchQuery.toLowerCase()) ||
+          business.location.toLowerCase().contains(searchQuery.toLowerCase());
+      return matchesCategory && matchesSearch;
+    }).toList();
   }
 
   @override
@@ -571,15 +739,15 @@ class _LocalBusinessesAdminScreenState
                           fontFamily: 'Regular',
                         ),
                       )
-                    : Wrap(
-                        spacing: 24,
-                        runSpacing: 24,
-                        children: filteredBusinesses
-                            .asMap()
-                            .entries
-                            .map((entry) => _buildBusinessCard(
-                                entry.value, entry.key, isWide))
-                            .toList(),
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        physics: NeverScrollableScrollPhysics(),
+                        itemCount: filteredBusinesses.length,
+                        itemBuilder: (context, index) {
+                          final business = filteredBusinesses[index];
+                          return _buildBusinessCard(
+                              business, businessIds[index]);
+                        },
                       ),
               ],
             ),
@@ -590,9 +758,9 @@ class _LocalBusinessesAdminScreenState
     );
   }
 
-  Widget _buildBusinessCard(Business business, int index, bool isWide) {
+  Widget _buildBusinessCard(Business business, String id) {
     return SizedBox(
-      width: isWide ? 350 : double.infinity,
+      width: 350,
       child: Card(
         elevation: 3,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -617,11 +785,11 @@ class _LocalBusinessesAdminScreenState
                   IconButton(
                     icon: const Icon(Icons.edit, color: Colors.black),
                     onPressed: () =>
-                        _showBusinessDialog(business: business, index: index),
+                        _showBusinessDialog(business: business, id: id),
                   ),
                   IconButton(
                     icon: const Icon(Icons.delete, color: Colors.redAccent),
-                    onPressed: () => _deleteBusiness(index),
+                    onPressed: () => _deleteBusiness(id),
                   ),
                 ],
               ),
@@ -726,6 +894,28 @@ class _LocalBusinessesAdminScreenState
                   padding: const EdgeInsets.only(top: 4),
                   child: TextWidget(
                     text: 'Price: ${business.priceRange}',
+                    fontSize: 11,
+                    color: grey,
+                    fontFamily: 'Regular',
+                  ),
+                ),
+              if (business.fares != null && business.fares!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: TextWidget(
+                    text:
+                        'Fares: ${business.fares!.entries.map((e) => '${e.key}: ${e.value}').join(', ')}',
+                    fontSize: 11,
+                    color: grey,
+                    fontFamily: 'Regular',
+                  ),
+                ),
+              if (business.prices != null && business.prices!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: TextWidget(
+                    text:
+                        'Prices: ${business.prices!.entries.map((e) => '${e.key}: ${e.value.entries.map((v) => '${v.key}=${v.value}').join(',')}').join('|')}',
                     fontSize: 11,
                     color: grey,
                     fontFamily: 'Regular',
