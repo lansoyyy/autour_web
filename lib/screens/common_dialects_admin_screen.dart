@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:autour_web/utils/colors.dart';
 import 'package:autour_web/widgets/text_widget.dart';
 import 'package:autour_web/widgets/button_widget.dart';
@@ -15,6 +16,10 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
   final TextEditingController searchController = TextEditingController();
   String searchQuery = '';
   String selectedTown = 'All';
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  late final CollectionReference dialectsRef =
+      _db.collection('common_dialects');
+  List<String> _dialectIds = [];
 
   final List<String> towns = [
     'All',
@@ -24,48 +29,48 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
     'San Luis',
   ];
 
-  List<Map<String, dynamic>> dialectEntries = [
-    {
-      'phrase': 'Kumusta',
-      'meaning': 'Hello',
-      'pronunciation': 'Koo-moos-ta',
-      'town': 'Baler',
-      'language': 'Tagalog',
-      'usage': 'Greeting someone',
-      'example': 'Kumusta ka? (How are you?)',
-      'verified': true,
-    },
-    {
-      'phrase': 'Agyamanak',
-      'meaning': 'Thank you',
-      'pronunciation': 'Ag-ya-ma-nak',
-      'town': 'Maria Aurora',
-      'language': 'Ilocano',
-      'usage': 'Expressing gratitude',
-      'example': 'Agyamanak kadakayo amin! (Thank you all!)',
-      'verified': false,
-    },
-    {
-      'phrase': 'Magandang Umaga',
-      'meaning': 'Good Morning',
-      'pronunciation': 'Ma-gan-dang Oo-ma-ga',
-      'town': 'Dingalan',
-      'language': 'Tagalog',
-      'usage': 'Morning greeting',
-      'example': 'Magandang Umaga po! (Good morning!)',
-      'verified': true,
-    },
-    {
-      'phrase': 'Naimbag nga Bigat',
-      'meaning': 'Good Morning',
-      'pronunciation': 'Nai-im-bag nga Bi-gat',
-      'town': 'San Luis',
-      'language': 'Ilocano',
-      'usage': 'Morning greeting',
-      'example': 'Naimbag nga bigat mo! (Good morning to you!)',
-      'verified': true,
-    },
-  ];
+  List<Map<String, dynamic>> dialectEntries = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _setupFirestoreListener();
+  }
+
+  void _setupFirestoreListener() {
+    dialectsRef.orderBy('createdAt', descending: true).snapshots().listen((s) {
+      setState(() {
+        dialectEntries = s.docs.map((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return {
+            'phrase': (data['phrase'] ?? '').toString(),
+            'meaning': (data['meaning'] ?? '').toString(),
+            'pronunciation': (data['pronunciation'] ?? '').toString(),
+            'town': (data['town'] ?? '').toString(),
+            'language': (data['language'] ?? '').toString(),
+            'usage': (data['usage'] ?? '').toString(),
+            'example': (data['example'] ?? '').toString(),
+            'verified': (data['verified'] ?? false) == true,
+          };
+        }).toList();
+        _dialectIds = s.docs.map((d) => d.id).toList();
+      });
+    });
+  }
+
+  Future<void> _addDialect(Map<String, dynamic> data) async {
+    await dialectsRef.add({...data, 'createdAt': FieldValue.serverTimestamp()});
+  }
+
+  Future<void> _updateDialect(int index, Map<String, dynamic> data) async {
+    if (index < 0 || index >= _dialectIds.length) return;
+    await dialectsRef.doc(_dialectIds[index]).update(data);
+  }
+
+  Future<void> _deleteDialectAt(int index) async {
+    if (index < 0 || index >= _dialectIds.length) return;
+    await dialectsRef.doc(_dialectIds[index]).delete();
+  }
 
   List<Map<String, dynamic>> get filteredDialects {
     return dialectEntries.where((entry) {
@@ -172,7 +177,7 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
           ),
           ButtonWidget(
             label: entry == null ? 'Add' : 'Save',
-            onPressed: () {
+            onPressed: () async {
               final newEntry = {
                 'phrase': phraseController.text,
                 'meaning': meaningController.text,
@@ -183,14 +188,17 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
                 'example': exampleController.text,
                 'verified': verified,
               };
-              setState(() {
+              try {
                 if (entry == null) {
-                  dialectEntries.add(newEntry);
+                  await _addDialect(newEntry);
                 } else {
-                  dialectEntries[index!] = newEntry;
+                  await _updateDialect(index!, newEntry);
                 }
-              });
-              Navigator.pop(context);
+                Navigator.pop(context);
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error saving dialect: $e')));
+              }
             },
             color: primary,
             textColor: white,
@@ -226,11 +234,15 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
           ),
           ButtonWidget(
             label: 'Delete',
-            onPressed: () {
-              setState(() {
-                dialectEntries.removeAt(index);
-              });
-              Navigator.pop(context);
+            onPressed: () async {
+              try {
+                await _deleteDialectAt(index);
+                Navigator.pop(context);
+              } catch (e) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error deleting dialect: $e')));
+              }
             },
             color: Colors.red,
             textColor: white,
