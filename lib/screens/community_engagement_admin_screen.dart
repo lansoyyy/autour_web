@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:autour_web/utils/colors.dart';
 import 'package:autour_web/widgets/text_widget.dart';
 import 'package:autour_web/widgets/button_widget.dart';
@@ -13,6 +14,23 @@ class CommunityEngagementAdminScreen extends StatefulWidget {
 
 class _CommunityEngagementAdminScreenState
     extends State<CommunityEngagementAdminScreen> {
+  // Firestore
+  final FirebaseFirestore firestore = FirebaseFirestore.instance;
+  late final CollectionReference storiesRef =
+      firestore.collection('community_stories');
+  late final CollectionReference heritageRef =
+      firestore.collection('community_heritage');
+  late final CollectionReference rulesRef =
+      firestore.collection('community_rules');
+  late final CollectionReference sustainabilityRef =
+      firestore.collection('community_sustainability');
+  late final CollectionReference preservationRef =
+      firestore.collection('community_preservation');
+  late final CollectionReference safetyStoriesRef =
+      firestore.collection('safety_stories');
+  late final CollectionReference dialectAlertsRef =
+      firestore.collection('dialect_alerts');
+
   List<Map<String, String>> stories = [
     {
       'title': 'The Legend of Maria Aurora',
@@ -39,6 +57,280 @@ class _CommunityEngagementAdminScreenState
           'https://outoftownblog.com/wp-content/uploads/2014/03/Dona-Aurora-Aragon-Quezon-House-600x398.jpg'
     },
   ];
+
+  // Document ID trackers for updates/deletes
+  List<String> _storyIds = [];
+  List<String> _heritageIds = [];
+  List<String> _ruleIds = [];
+  List<String> _sustainabilityIds = [];
+  List<String> _preservationIds = [];
+  List<String> _safetyStoryIds = [];
+  List<String> _dialectAlertIds = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _setupFirestoreListeners();
+  }
+
+  void _setupFirestoreListeners() {
+    // Stories
+    storiesRef.orderBy('createdAt', descending: true).snapshots().listen((s) {
+      setState(() {
+        stories = s.docs.map((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return {
+            'title': (data['title'] ?? '').toString(),
+            'author': (data['author'] ?? '').toString(),
+            'content': (data['content'] ?? '').toString(),
+            'image': (data['image'] ?? '').toString(),
+          };
+        }).toList();
+        _storyIds = s.docs.map((d) => d.id).toList();
+      });
+    });
+
+    // Heritage
+    heritageRef.orderBy('createdAt', descending: true).snapshots().listen((s) {
+      setState(() {
+        heritageItems = s.docs.map((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return {
+            'title': (data['title'] ?? '').toString(),
+            'description': (data['description'] ?? '').toString(),
+          };
+        }).toList();
+        _heritageIds = s.docs.map((d) => d.id).toList();
+      });
+    });
+
+    // Rules
+    rulesRef.orderBy('createdAt', descending: true).snapshots().listen((s) {
+      setState(() {
+        rulesAndRegulations = s.docs.map((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return {
+            'title': (data['title'] ?? '').toString(),
+            'items': (data['items'] as List?)?.cast<String>() ?? <String>[],
+          };
+        }).toList();
+        _ruleIds = s.docs.map((d) => d.id).toList();
+      });
+    });
+
+    // Sustainability
+    sustainabilityRef
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .listen((s) {
+      setState(() {
+        sustainabilityInfo = s.docs.map((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return {
+            'title': (data['title'] ?? '').toString(),
+            'description': (data['description'] ?? '').toString(),
+            'initiatives':
+                (data['initiatives'] as List?)?.cast<String>() ?? <String>[],
+          };
+        }).toList();
+        _sustainabilityIds = s.docs.map((d) => d.id).toList();
+      });
+    });
+
+    // Preservation
+    preservationRef
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .listen((s) {
+      setState(() {
+        touristPreservation = s.docs.map((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return {
+            'title': (data['title'] ?? '').toString(),
+            'description': (data['description'] ?? '').toString(),
+            'practices':
+                (data['practices'] as List?)?.cast<String>() ?? <String>[],
+          };
+        }).toList();
+        _preservationIds = s.docs.map((d) => d.id).toList();
+      });
+    });
+
+    // Safety Stories
+    safetyStoriesRef
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .listen((s) {
+      setState(() {
+        safetyStories = s.docs.map((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return {
+            'title': (data['title'] ?? '').toString(),
+            'author': (data['author'] ?? '').toString(),
+            'content': (data['content'] ?? '').toString(),
+            'category': (data['category'] ?? '').toString(),
+            'location': (data['location'] ?? '').toString(),
+            'verified': (data['verified'] ?? false) == true,
+          };
+        }).toList();
+        _safetyStoryIds = s.docs.map((d) => d.id).toList();
+      });
+    });
+
+    // Dialect Alerts
+    dialectAlertsRef
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .listen((s) {
+      setState(() {
+        dialectAlerts = s.docs.map((d) {
+          final data = d.data() as Map<String, dynamic>;
+          return {
+            'dialect': (data['dialect'] ?? '').toString(),
+            'alert': (data['alert'] ?? '').toString(),
+            'translation': (data['translation'] ?? '').toString(),
+            'location': (data['location'] ?? '').toString(),
+          };
+        }).toList();
+        _dialectAlertIds = s.docs.map((d) => d.id).toList();
+      });
+    });
+  }
+
+  // CRUD Helpers
+  Future<void> _addStory(Map<String, String> data) async {
+    await storiesRef.add({...data, 'createdAt': FieldValue.serverTimestamp()});
+  }
+
+  Future<void> _updateStory(int index, Map<String, String> data) async {
+    if (index < 0 || index >= _storyIds.length) return;
+    await storiesRef.doc(_storyIds[index]).update(data);
+  }
+
+  Future<void> _deleteStoryAt(int index) async {
+    if (index < 0 || index >= _storyIds.length) return;
+    await storiesRef.doc(_storyIds[index]).delete();
+  }
+
+  Future<void> _addHeritage(Map<String, String> data) async {
+    await heritageRef.add({...data, 'createdAt': FieldValue.serverTimestamp()});
+  }
+
+  Future<void> _updateHeritage(int index, Map<String, String> data) async {
+    if (index < 0 || index >= _heritageIds.length) return;
+    await heritageRef.doc(_heritageIds[index]).update(data);
+  }
+
+  Future<void> _deleteHeritageAt(int index) async {
+    if (index < 0 || index >= _heritageIds.length) return;
+    await heritageRef.doc(_heritageIds[index]).delete();
+  }
+
+  Future<void> _addRule(Map<String, dynamic> data) async {
+    await rulesRef.add({
+      ...data,
+      'items': (data['items'] as List).map((e) => e.toString()).toList(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _updateRule(int index, Map<String, dynamic> data) async {
+    if (index < 0 || index >= _ruleIds.length) return;
+    await rulesRef.doc(_ruleIds[index]).update({
+      ...data,
+      'items': (data['items'] as List).map((e) => e.toString()).toList(),
+    });
+  }
+
+  Future<void> _deleteRuleAt(int index) async {
+    if (index < 0 || index >= _ruleIds.length) return;
+    await rulesRef.doc(_ruleIds[index]).delete();
+  }
+
+  Future<void> _addSustainability(Map<String, dynamic> data) async {
+    await sustainabilityRef.add({
+      ...data,
+      'initiatives':
+          (data['initiatives'] as List).map((e) => e.toString()).toList(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _updateSustainability(
+      int index, Map<String, dynamic> data) async {
+    if (index < 0 || index >= _sustainabilityIds.length) return;
+    await sustainabilityRef.doc(_sustainabilityIds[index]).update({
+      ...data,
+      'initiatives':
+          (data['initiatives'] as List).map((e) => e.toString()).toList(),
+    });
+  }
+
+  Future<void> _deleteSustainabilityAt(int index) async {
+    if (index < 0 || index >= _sustainabilityIds.length) return;
+    await sustainabilityRef.doc(_sustainabilityIds[index]).delete();
+  }
+
+  Future<void> _addPreservation(Map<String, dynamic> data) async {
+    await preservationRef.add({
+      ...data,
+      'practices':
+          (data['practices'] as List).map((e) => e.toString()).toList(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _updatePreservation(int index, Map<String, dynamic> data) async {
+    if (index < 0 || index >= _preservationIds.length) return;
+    await preservationRef.doc(_preservationIds[index]).update({
+      ...data,
+      'practices':
+          (data['practices'] as List).map((e) => e.toString()).toList(),
+    });
+  }
+
+  Future<void> _deletePreservationAt(int index) async {
+    if (index < 0 || index >= _preservationIds.length) return;
+    await preservationRef.doc(_preservationIds[index]).delete();
+  }
+
+  Future<void> _addSafetyStory(Map<String, dynamic> data) async {
+    await safetyStoriesRef.add({
+      ...data,
+      'verified': data['verified'] == true,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _updateSafetyStory(int index, Map<String, dynamic> data) async {
+    if (index < 0 || index >= _safetyStoryIds.length) return;
+    await safetyStoriesRef.doc(_safetyStoryIds[index]).update({
+      ...data,
+      'verified': data['verified'] == true,
+    });
+  }
+
+  Future<void> _deleteSafetyStoryAt(int index) async {
+    if (index < 0 || index >= _safetyStoryIds.length) return;
+    await safetyStoriesRef.doc(_safetyStoryIds[index]).delete();
+  }
+
+  Future<void> _addDialectAlert(Map<String, dynamic> data) async {
+    await dialectAlertsRef.add({
+      ...data,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _updateDialectAlert(int index, Map<String, dynamic> data) async {
+    if (index < 0 || index >= _dialectAlertIds.length) return;
+    await dialectAlertsRef.doc(_dialectAlertIds[index]).update(data);
+  }
+
+  Future<void> _deleteDialectAlertAt(int index) async {
+    if (index < 0 || index >= _dialectAlertIds.length) return;
+    await dialectAlertsRef.doc(_dialectAlertIds[index]).delete();
+  }
 
   List<Map<String, String>> heritageItems = [
     {
@@ -232,27 +524,27 @@ class _CommunityEngagementAdminScreenState
           ),
           ButtonWidget(
             label: story == null ? 'Add' : 'Update',
-            onPressed: () {
+            onPressed: () async {
               if (formKey.currentState == null ||
                   !formKey.currentState!.validate()) return;
-              setState(() {
+              final data = {
+                'title': titleController.text,
+                'author': authorController.text,
+                'content': contentController.text,
+                'image': imageController.text,
+              };
+              try {
                 if (story == null) {
-                  stories.add({
-                    'title': titleController.text,
-                    'author': authorController.text,
-                    'content': contentController.text,
-                    'image': imageController.text,
-                  });
+                  await _addStory(data);
                 } else if (index != null) {
-                  stories[index] = {
-                    'title': titleController.text,
-                    'author': authorController.text,
-                    'content': contentController.text,
-                    'image': imageController.text,
-                  };
+                  await _updateStory(index, data);
                 }
-              });
-              Navigator.pop(context);
+                Navigator.pop(context);
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Error saving story: $e')),
+                );
+              }
             },
             color: primary,
             textColor: white,
@@ -266,10 +558,14 @@ class _CommunityEngagementAdminScreenState
     );
   }
 
-  void _deleteStory(int index) {
-    setState(() {
-      stories.removeAt(index);
-    });
+  void _deleteStory(int index) async {
+    try {
+      await _deleteStoryAt(index);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error deleting story: $e')),
+      );
+    }
   }
 
   void _showHeritageDialog({Map<String, String>? item, int? index}) {
@@ -318,23 +614,24 @@ class _CommunityEngagementAdminScreenState
           ),
           ButtonWidget(
             label: item == null ? 'Add' : 'Update',
-            onPressed: () {
+            onPressed: () async {
               if (formKey.currentState == null ||
                   !formKey.currentState!.validate()) return;
-              setState(() {
+              final data = {
+                'title': titleController.text,
+                'description': descriptionController.text,
+              };
+              try {
                 if (item == null) {
-                  heritageItems.add({
-                    'title': titleController.text,
-                    'description': descriptionController.text,
-                  });
+                  await _addHeritage(data);
                 } else if (index != null) {
-                  heritageItems[index] = {
-                    'title': titleController.text,
-                    'description': descriptionController.text,
-                  };
+                  await _updateHeritage(index, data);
                 }
-              });
-              Navigator.pop(context);
+                Navigator.pop(context);
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error saving heritage: $e')));
+              }
             },
             color: primary,
             textColor: white,
@@ -348,10 +645,13 @@ class _CommunityEngagementAdminScreenState
     );
   }
 
-  void _deleteHeritageItem(int index) {
-    setState(() {
-      heritageItems.removeAt(index);
-    });
+  void _deleteHeritageItem(int index) async {
+    try {
+      await _deleteHeritageAt(index);
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error deleting heritage: $e')));
+    }
   }
 
   void _showRuleDialog({Map<String, dynamic>? rule, int? index}) {
@@ -401,31 +701,29 @@ class _CommunityEngagementAdminScreenState
           ),
           ButtonWidget(
             label: rule == null ? 'Add' : 'Update',
-            onPressed: () {
+            onPressed: () async {
               if (formKey.currentState == null ||
                   !formKey.currentState!.validate()) return;
-              setState(() {
+              final items = itemsController.text
+                  .split('\n')
+                  .map((e) => e.trim())
+                  .where((e) => e.isNotEmpty)
+                  .toList();
+              final data = {
+                'title': titleController.text,
+                'items': items,
+              };
+              try {
                 if (rule == null) {
-                  rulesAndRegulations.add({
-                    'title': titleController.text,
-                    'items': itemsController.text
-                        .split('\n')
-                        .map((e) => e.trim())
-                        .where((e) => e.isNotEmpty)
-                        .toList(),
-                  });
+                  await _addRule(data);
                 } else if (index != null) {
-                  rulesAndRegulations[index] = {
-                    'title': titleController.text,
-                    'items': itemsController.text
-                        .split('\n')
-                        .map((e) => e.trim())
-                        .where((e) => e.isNotEmpty)
-                        .toList(),
-                  };
+                  await _updateRule(index, data);
                 }
-              });
-              Navigator.pop(context);
+                Navigator.pop(context);
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error saving rule: $e')));
+              }
             },
             color: primary,
             textColor: white,
@@ -439,10 +737,13 @@ class _CommunityEngagementAdminScreenState
     );
   }
 
-  void _deleteRule(int index) {
-    setState(() {
-      rulesAndRegulations.removeAt(index);
-    });
+  void _deleteRule(int index) async {
+    try {
+      await _deleteRuleAt(index);
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error deleting rule: $e')));
+    }
   }
 
   void _showSustainabilityDialog({Map<String, dynamic>? info, int? index}) {
@@ -501,33 +802,30 @@ class _CommunityEngagementAdminScreenState
           ),
           ButtonWidget(
             label: info == null ? 'Add' : 'Update',
-            onPressed: () {
+            onPressed: () async {
               if (formKey.currentState == null ||
                   !formKey.currentState!.validate()) return;
-              setState(() {
+              final initiatives = initiativesController.text
+                  .split('\n')
+                  .map((e) => e.trim())
+                  .where((e) => e.isNotEmpty)
+                  .toList();
+              final data = {
+                'title': titleController.text,
+                'description': descriptionController.text,
+                'initiatives': initiatives,
+              };
+              try {
                 if (info == null) {
-                  sustainabilityInfo.add({
-                    'title': titleController.text,
-                    'description': descriptionController.text,
-                    'initiatives': initiativesController.text
-                        .split('\n')
-                        .map((e) => e.trim())
-                        .where((e) => e.isNotEmpty)
-                        .toList(),
-                  });
+                  await _addSustainability(data);
                 } else if (index != null) {
-                  sustainabilityInfo[index] = {
-                    'title': titleController.text,
-                    'description': descriptionController.text,
-                    'initiatives': initiativesController.text
-                        .split('\n')
-                        .map((e) => e.trim())
-                        .where((e) => e.isNotEmpty)
-                        .toList(),
-                  };
+                  await _updateSustainability(index, data);
                 }
-              });
-              Navigator.pop(context);
+                Navigator.pop(context);
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error saving sustainability: $e')));
+              }
             },
             color: primary,
             textColor: white,
@@ -541,10 +839,13 @@ class _CommunityEngagementAdminScreenState
     );
   }
 
-  void _deleteSustainability(int index) {
-    setState(() {
-      sustainabilityInfo.removeAt(index);
-    });
+  void _deleteSustainability(int index) async {
+    try {
+      await _deleteSustainabilityAt(index);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting sustainability: $e')));
+    }
   }
 
   void _showPreservationDialog({Map<String, dynamic>? item, int? index}) {
@@ -603,33 +904,30 @@ class _CommunityEngagementAdminScreenState
           ),
           ButtonWidget(
             label: item == null ? 'Add' : 'Update',
-            onPressed: () {
+            onPressed: () async {
               if (formKey.currentState == null ||
                   !formKey.currentState!.validate()) return;
-              setState(() {
+              final practices = practicesController.text
+                  .split('\n')
+                  .map((e) => e.trim())
+                  .where((e) => e.isNotEmpty)
+                  .toList();
+              final data = {
+                'title': titleController.text,
+                'description': descriptionController.text,
+                'practices': practices,
+              };
+              try {
                 if (item == null) {
-                  touristPreservation.add({
-                    'title': titleController.text,
-                    'description': descriptionController.text,
-                    'practices': practicesController.text
-                        .split('\n')
-                        .map((e) => e.trim())
-                        .where((e) => e.isNotEmpty)
-                        .toList(),
-                  });
+                  await _addPreservation(data);
                 } else if (index != null) {
-                  touristPreservation[index] = {
-                    'title': titleController.text,
-                    'description': descriptionController.text,
-                    'practices': practicesController.text
-                        .split('\n')
-                        .map((e) => e.trim())
-                        .where((e) => e.isNotEmpty)
-                        .toList(),
-                  };
+                  await _updatePreservation(index, data);
                 }
-              });
-              Navigator.pop(context);
+                Navigator.pop(context);
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error saving preservation: $e')));
+              }
             },
             color: primary,
             textColor: white,
@@ -643,10 +941,13 @@ class _CommunityEngagementAdminScreenState
     );
   }
 
-  void _deletePreservation(int index) {
-    setState(() {
-      touristPreservation.removeAt(index);
-    });
+  void _deletePreservation(int index) async {
+    try {
+      await _deletePreservationAt(index);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting preservation: $e')));
+    }
   }
 
   void _showSafetyStoryDialog({Map<String, dynamic>? story, int? index}) {
@@ -727,31 +1028,28 @@ class _CommunityEngagementAdminScreenState
           ),
           ButtonWidget(
             label: story == null ? 'Add' : 'Update',
-            onPressed: () {
+            onPressed: () async {
               if (formKey.currentState == null ||
                   !formKey.currentState!.validate()) return;
-              setState(() {
+              final data = {
+                'title': titleController.text,
+                'author': authorController.text,
+                'content': contentController.text,
+                'category': categoryController.text,
+                'location': locationController.text,
+                'verified': verified,
+              };
+              try {
                 if (story == null) {
-                  safetyStories.add({
-                    'title': titleController.text,
-                    'author': authorController.text,
-                    'content': contentController.text,
-                    'category': categoryController.text,
-                    'location': locationController.text,
-                    'verified': verified,
-                  });
+                  await _addSafetyStory(data);
                 } else if (index != null) {
-                  safetyStories[index] = {
-                    'title': titleController.text,
-                    'author': authorController.text,
-                    'content': contentController.text,
-                    'category': categoryController.text,
-                    'location': locationController.text,
-                    'verified': verified,
-                  };
+                  await _updateSafetyStory(index, data);
                 }
-              });
-              Navigator.pop(context);
+                Navigator.pop(context);
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error saving safety story: $e')));
+              }
             },
             color: primary,
             textColor: white,
@@ -765,10 +1063,13 @@ class _CommunityEngagementAdminScreenState
     );
   }
 
-  void _deleteSafetyStory(int index) {
-    setState(() {
-      safetyStories.removeAt(index);
-    });
+  void _deleteSafetyStory(int index) async {
+    try {
+      await _deleteSafetyStoryAt(index);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting safety story: $e')));
+    }
   }
 
   void _showDialectAlertDialog({Map<String, dynamic>? alert, int? index}) {
@@ -830,27 +1131,26 @@ class _CommunityEngagementAdminScreenState
           ),
           ButtonWidget(
             label: alert == null ? 'Add' : 'Update',
-            onPressed: () {
+            onPressed: () async {
               if (formKey.currentState == null ||
                   !formKey.currentState!.validate()) return;
-              setState(() {
+              final data = {
+                'dialect': dialectController.text,
+                'alert': alertController.text,
+                'translation': translationController.text,
+                'location': locationController.text,
+              };
+              try {
                 if (alert == null) {
-                  dialectAlerts.add({
-                    'dialect': dialectController.text,
-                    'alert': alertController.text,
-                    'translation': translationController.text,
-                    'location': locationController.text,
-                  });
+                  await _addDialectAlert(data);
                 } else if (index != null) {
-                  dialectAlerts[index] = {
-                    'dialect': dialectController.text,
-                    'alert': alertController.text,
-                    'translation': translationController.text,
-                    'location': locationController.text,
-                  };
+                  await _updateDialectAlert(index, data);
                 }
-              });
-              Navigator.pop(context);
+                Navigator.pop(context);
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error saving dialect alert: $e')));
+              }
             },
             color: primary,
             textColor: white,
@@ -864,10 +1164,13 @@ class _CommunityEngagementAdminScreenState
     );
   }
 
-  void _deleteDialectAlert(int index) {
-    setState(() {
-      dialectAlerts.removeAt(index);
-    });
+  void _deleteDialectAlert(int index) async {
+    try {
+      await _deleteDialectAlertAt(index);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting dialect alert: $e')));
+    }
   }
 
   @override
