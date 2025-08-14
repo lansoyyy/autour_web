@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:autour_web/utils/colors.dart';
 import 'package:autour_web/widgets/text_widget.dart';
-import 'package:autour_web/widgets/button_widget.dart';
 
 class HealthSurveillanceAdminScreen extends StatefulWidget {
   const HealthSurveillanceAdminScreen({super.key});
@@ -16,47 +16,85 @@ class _HealthSurveillanceAdminScreenState
   final TextEditingController searchController = TextEditingController();
   String searchQuery = '';
 
-  // Mock data for health declarations
-  List<Map<String, dynamic>> healthDeclarations = [
-    {
-      'name': 'Juan Dela Cruz',
-      'temperature': '36.8',
-      'symptoms': 'None',
-      'exposure': 'None',
-      'vaccination': 'Fully Vaccinated',
-      'aiAssessment': 'Low Risk',
-      'statusColor': Colors.green,
-      'date': '2024-06-01',
-    },
-    {
-      'name': 'Maria Santos',
-      'temperature': '37.9',
-      'symptoms': 'Cough',
-      'exposure': 'Contact with confirmed case',
-      'vaccination': 'Partially Vaccinated',
-      'aiAssessment': 'Further Review Needed',
-      'statusColor': Colors.red,
-      'date': '2024-06-01',
-    },
-    {
-      'name': 'Alex Tan',
-      'temperature': '36.5',
-      'symptoms': 'None',
-      'exposure': 'None',
-      'vaccination': 'Not Provided',
-      'aiAssessment': 'Low Risk',
-      'statusColor': Colors.green,
-      'date': '2024-06-01',
-    },
-  ];
+  // Firestore wiring
+  static const String collectionName =
+      'health_declarations'; // TODO: update if mobile uses a different collection
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  late final Query<Map<String, dynamic>> declarationsQuery =
+      _db.collectionGroup(collectionName);
+
+  // Live data from Firestore
+  List<Map<String, dynamic>> declarations = [];
 
   List<Map<String, dynamic>> get filteredDeclarations {
-    return healthDeclarations.where((d) {
-      return d['name'].toLowerCase().contains(searchQuery.toLowerCase()) ||
-          d['aiAssessment'].toLowerCase().contains(searchQuery.toLowerCase()) ||
-          d['symptoms'].toLowerCase().contains(searchQuery.toLowerCase()) ||
-          d['exposure'].toLowerCase().contains(searchQuery.toLowerCase());
+    return declarations.where((d) {
+      final q = searchQuery.toLowerCase();
+      final name = (d['name'] ?? '').toString().toLowerCase();
+      final symptoms = (d['symptoms'] ?? '').toString().toLowerCase();
+      final exposure = (d['exposure'] ?? '').toString().toLowerCase();
+      final vaccination = (d['vaccination'] ?? '').toString().toLowerCase();
+      return name.contains(q) ||
+          symptoms.contains(q) ||
+          exposure.contains(q) ||
+          vaccination.contains(q);
     }).toList();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _setupFirestoreListener();
+  }
+
+  void _setupFirestoreListener() {
+    declarationsQuery
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .listen((s) {
+      setState(() {
+        declarations = s.docs.map((d) {
+          final data = d.data();
+          final String userId = (data['userId'] ?? '').toString();
+          String name = (data['name'] ?? data['fullName'] ?? '').toString();
+          if (name.isEmpty && userId.isNotEmpty) {
+            name = userId;
+          }
+          String temperature =
+              (data['temperature'] ?? data['temp'] ?? '-').toString();
+          String symptoms;
+          final rawSymptoms = data['symptoms'];
+          if (rawSymptoms is List) {
+            symptoms = rawSymptoms.map((e) => e.toString()).join(', ');
+          } else {
+            symptoms = (rawSymptoms ?? 'None').toString();
+          }
+          String exposure =
+              (data['exposure'] ?? data['exposureStatus'] ?? 'None').toString();
+          String vaccination = (data['vaccination'] ??
+                  data['vaccinationStatus'] ??
+                  'Not Provided')
+              .toString();
+          String dateStr = '-';
+          final createdAt =
+              data['createdAt'] ?? data['submittedAt'] ?? data['date'];
+          if (createdAt is Timestamp) {
+            dateStr = createdAt.toDate().toIso8601String().split('T').first;
+          } else if (createdAt != null) {
+            dateStr = createdAt.toString();
+          }
+
+          return {
+            'name': name,
+            'userId': userId,
+            'temperature': temperature,
+            'symptoms': symptoms,
+            'exposure': exposure,
+            'vaccination': vaccination,
+            'date': dateStr,
+          };
+        }).toList();
+      });
+    });
   }
 
   @override
@@ -141,7 +179,8 @@ class _HealthSurveillanceAdminScreenState
                         decoration: InputDecoration(
                           prefixIcon:
                               const Icon(Icons.search, color: Colors.grey),
-                          hintText: 'Search by name, symptoms, or risk',
+                          hintText:
+                              'Search by name, symptoms, exposure, or vaccination',
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
@@ -163,7 +202,6 @@ class _HealthSurveillanceAdminScreenState
                       DataColumn(label: Text('Symptoms')),
                       DataColumn(label: Text('Exposure')),
                       DataColumn(label: Text('Vaccination')),
-                      DataColumn(label: Text('AI Assessment')),
                       DataColumn(label: Text('Actions')),
                     ],
                     rows: filteredDeclarations.map((d) {
@@ -176,15 +214,6 @@ class _HealthSurveillanceAdminScreenState
                         DataCell(Text(d['vaccination'])),
                         DataCell(Row(
                           children: [
-                            Icon(Icons.circle,
-                                color: d['statusColor'], size: 12),
-                            const SizedBox(width: 6),
-                            Text(d['aiAssessment'],
-                                style: TextStyle(color: d['statusColor'])),
-                          ],
-                        )),
-                        DataCell(Row(
-                          children: [
                             IconButton(
                               icon: const Icon(Icons.visibility,
                                   color: Colors.blue),
@@ -192,105 +221,10 @@ class _HealthSurveillanceAdminScreenState
                                 _showDeclarationDetails(d);
                               },
                             ),
-                            IconButton(
-                              icon: const Icon(Icons.flag,
-                                  color: Colors.redAccent),
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: TextWidget(
-                                      text:
-                                          'Flagged for review. Authorities notified.',
-                                      fontSize: 14,
-                                      color: white,
-                                    ),
-                                    backgroundColor: Colors.red,
-                                    duration: const Duration(seconds: 2),
-                                  ),
-                                );
-                              },
-                            ),
                           ],
                         )),
                       ]);
                     }).toList(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 40),
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.04),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextWidget(
-                  text: 'Smart Contact Tracing & Health Alerts',
-                  fontSize: 22,
-                  color: black,
-                  fontFamily: 'Bold',
-                  align: TextAlign.left,
-                ),
-                const SizedBox(height: 12),
-                TextWidget(
-                  text:
-                      'Uses geolocation tracking to identify potential exposure within tourist spots. If a health risk is detected, E-Lakbay notifies affected tourists and authorities while ensuring privacy compliance.',
-                  fontSize: 14,
-                  color: black,
-                  fontFamily: 'Regular',
-                  align: TextAlign.left,
-                ),
-                const SizedBox(height: 18),
-                Card(
-                  elevation: 1,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Icon(Icons.location_on, color: primary, size: 28),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextWidget(
-                            text:
-                                'No health risks detected in tourist spots. All clear!',
-                            fontSize: 15,
-                            color: Colors.green,
-                            fontFamily: 'Bold',
-                            align: TextAlign.left,
-                          ),
-                        ),
-                        ButtonWidget(
-                          label: 'Send Health Alert',
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: TextWidget(
-                                  text:
-                                      'Health alert sent to affected tourists and authorities.',
-                                  fontSize: 14,
-                                  color: white,
-                                ),
-                                backgroundColor: Colors.red,
-                                duration: const Duration(seconds: 2),
-                              ),
-                            );
-                          },
-                          color: Colors.red,
-                          textColor: white,
-                          width: 180,
-                          height: 40,
-                          fontSize: 14,
-                          radius: 8,
-                        ),
-                      ],
-                    ),
                   ),
                 ),
               ],
@@ -324,7 +258,6 @@ class _HealthSurveillanceAdminScreenState
               _buildDetailRow('Symptoms', d['symptoms']),
               _buildDetailRow('Exposure', d['exposure']),
               _buildDetailRow('Vaccination', d['vaccination']),
-              _buildDetailRow('AI Assessment', d['aiAssessment']),
             ],
           ),
         ),
