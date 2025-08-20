@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:autour_web/utils/colors.dart';
 import 'package:autour_web/widgets/text_widget.dart';
@@ -115,58 +116,146 @@ class HomeScreen extends StatelessWidget {
                         spacing: 24,
                         runSpacing: 24,
                         children: [
-                          _buildAnalyticsCard(
-                            icon: Icons.account_circle,
-                            color: Colors.blue,
-                            title: 'Tourist Profile & Identification',
-                            description:
-                                'Personal, demographic, and emergency info. Consent records for geolocation and health tracking.',
-                            value: 1234,
-                            valueLabel: 'Total Tourists',
-                          ),
-                          _buildAnalyticsCard(
-                            icon: Icons.location_on,
-                            color: Colors.deepPurple,
-                            title: 'Geolocation & Travel Activity',
-                            description:
-                                'Real-time GPS logs, check-ins, and risk/emergency alerts.',
-                            value: 8921,
-                            valueLabel: 'Check-ins',
-                          ),
+                          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                              stream: FirebaseFirestore.instance
+                                  .collection('users')
+                                  .snapshots(),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState ==
+                                    ConnectionState.waiting) {
+                                  return const Center(
+                                      child: CircularProgressIndicator());
+                                }
+                                if (snapshot.hasError) {
+                                  return Center(
+                                    child: TextWidget(
+                                      text: 'Error loading merchants',
+                                      fontSize: 16,
+                                      color: Colors.red,
+                                      fontFamily: 'Medium',
+                                    ),
+                                  );
+                                }
+                                final docs = snapshot.data?.docs ?? const [];
+                                return _buildAnalyticsCard(
+                                  icon: Icons.account_circle,
+                                  color: Colors.blue,
+                                  title: 'Tourist Profile & Identification',
+                                  description:
+                                      'Personal, demographic, and emergency info. Consent records for geolocation and health tracking.',
+                                  value: docs.length,
+                                  valueLabel: 'Total Tourists',
+                                );
+                              }),
+                          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                              stream: FirebaseFirestore.instance
+                                  .collection('scans')
+                                  .snapshots(),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState ==
+                                    ConnectionState.waiting) {
+                                  return const Center(
+                                      child: CircularProgressIndicator());
+                                }
+                                if (snapshot.hasError) {
+                                  return Center(
+                                    child: TextWidget(
+                                      text: 'Error loading merchants',
+                                      fontSize: 16,
+                                      color: Colors.red,
+                                      fontFamily: 'Medium',
+                                    ),
+                                  );
+                                }
+                                final docs = snapshot.data?.docs ?? const [];
+                                return _buildAnalyticsCard(
+                                  icon: Icons.location_on,
+                                  color: Colors.deepPurple,
+                                  title: 'Geolocation & Travel Activity',
+                                  description:
+                                      'Real-time GPS logs, check-ins, and risk/emergency alerts.',
+                                  value: docs.length,
+                                  valueLabel: 'Check-ins',
+                                );
+                              }),
                           _buildAnalyticsCard(
                             icon: Icons.map,
                             color: Colors.green,
                             title: 'Smart Tourism Map & Metadata',
                             description:
                                 'Attraction data, eco-site tags, hazard zones, and emergency services.',
-                            value: 47,
+                            value: 11,
                             valueLabel: 'Sites Mapped',
                           ),
-                          _buildAnalyticsCard(
-                            icon: Icons.store_mall_directory,
-                            color: Colors.orange,
-                            title: 'Local Vendor & Business Integration',
-                            description:
-                                'Vendor profiles, services, pricing, and AI customer trend reports.',
-                            value: 56,
-                            valueLabel: 'Vendors',
-                          ),
-                          _buildAnalyticsCard(
-                            icon: Icons.warning,
-                            color: Colors.redAccent,
-                            title: 'Disaster & Weather Alert System',
-                            description:
-                                'Hazard alerts, severity, evacuation guides, and safety chatbot responses.',
-                            value: 3,
-                            valueLabel: 'Active Alerts',
-                          ),
+                          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                              stream: FirebaseFirestore.instance
+                                  .collection('businesses')
+                                  .snapshots(),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState ==
+                                    ConnectionState.waiting) {
+                                  return const Center(
+                                      child: CircularProgressIndicator());
+                                }
+                                if (snapshot.hasError) {
+                                  return Center(
+                                    child: TextWidget(
+                                      text: 'Error loading merchants',
+                                      fontSize: 16,
+                                      color: Colors.red,
+                                      fontFamily: 'Medium',
+                                    ),
+                                  );
+                                }
+                                final docs = snapshot.data?.docs ?? const [];
+                                return _buildAnalyticsCard(
+                                  icon: Icons.store_mall_directory,
+                                  color: Colors.orange,
+                                  title: 'Local Vendor & Business Integration',
+                                  description:
+                                      'Vendor profiles, services, pricing, and AI customer trend reports.',
+                                  value: docs.length,
+                                  valueLabel: 'Vendors',
+                                );
+                              }),
+                          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                              stream: FirebaseFirestore.instance
+                                  .collection('ai_suggestions')
+                                  .snapshots(),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState ==
+                                    ConnectionState.waiting) {
+                                  return const Center(
+                                      child: CircularProgressIndicator());
+                                }
+                                if (snapshot.hasError) {
+                                  return Center(
+                                    child: TextWidget(
+                                      text: 'Error loading merchants',
+                                      fontSize: 16,
+                                      color: Colors.red,
+                                      fontFamily: 'Medium',
+                                    ),
+                                  );
+                                }
+                                final docs = snapshot.data?.docs ?? const [];
+                                return _buildAnalyticsCard(
+                                  icon: Icons.warning,
+                                  color: Colors.redAccent,
+                                  title: 'Disaster & Weather Alert System',
+                                  description:
+                                      'Hazard alerts, severity, evacuation guides, and safety chatbot responses.',
+                                  value: docs.length,
+                                  valueLabel: 'Active Alerts',
+                                );
+                              }),
                           _buildAnalyticsCard(
                             icon: Icons.tour,
                             color: Colors.indigo,
                             title: 'Custom Travel Planning & AI',
                             description:
                                 'Personalized itineraries, smart suggestions, and feedback learning.',
-                            value: 128,
+                            value: 13,
                             valueLabel: 'Itineraries',
                           ),
                           _buildAnalyticsCard(
@@ -175,36 +264,103 @@ class HomeScreen extends StatelessWidget {
                             title: 'Community & Cultural Knowledge',
                             description:
                                 'Stories, traditions, events, and verified digital storytelling.',
-                            value: 22,
+                            value: 3,
                             valueLabel: 'Stories',
                           ),
-                          _buildAnalyticsCard(
-                            icon: Icons.qr_code,
-                            color: Colors.cyan,
-                            title: 'QR Code & Access Control',
-                            description:
-                                'Visitor identity, access logs, emergency profile access, and offline sync.',
-                            value: 10432,
-                            valueLabel: 'QR Scans',
-                          ),
-                          _buildAnalyticsCard(
-                            icon: Icons.health_and_safety,
-                            color: Colors.deepPurpleAccent,
-                            title: 'Health Surveillance & Disease Prevention',
-                            description:
-                                'Health declarations, vaccination uploads, exposure and contact tracing.',
-                            value: 876,
-                            valueLabel: 'Health Declarations',
-                          ),
-                          _buildAnalyticsCard(
-                            icon: Icons.translate,
-                            color: Colors.amber,
-                            title: 'Crowdsourced Dialects & Language',
-                            description:
-                                'Dialect phrases, usage, town tags, and community verification.',
-                            value: 39,
-                            valueLabel: 'Dialect Entries',
-                          ),
+                          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                              stream: FirebaseFirestore.instance
+                                  .collection('scans')
+                                  .snapshots(),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState ==
+                                    ConnectionState.waiting) {
+                                  return const Center(
+                                      child: CircularProgressIndicator());
+                                }
+                                if (snapshot.hasError) {
+                                  return Center(
+                                    child: TextWidget(
+                                      text: 'Error loading merchants',
+                                      fontSize: 16,
+                                      color: Colors.red,
+                                      fontFamily: 'Medium',
+                                    ),
+                                  );
+                                }
+                                final docs = snapshot.data?.docs ?? const [];
+                                return _buildAnalyticsCard(
+                                  icon: Icons.qr_code,
+                                  color: Colors.cyan,
+                                  title: 'QR Code & Access Control',
+                                  description:
+                                      'Visitor identity, access logs, emergency profile access, and offline sync.',
+                                  value: docs.length,
+                                  valueLabel: 'QR Scans',
+                                );
+                              }),
+                          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                              stream: FirebaseFirestore.instance
+                                  .collection('health_declarations')
+                                  .snapshots(),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState ==
+                                    ConnectionState.waiting) {
+                                  return const Center(
+                                      child: CircularProgressIndicator());
+                                }
+                                if (snapshot.hasError) {
+                                  return Center(
+                                    child: TextWidget(
+                                      text: 'Error loading merchants',
+                                      fontSize: 16,
+                                      color: Colors.red,
+                                      fontFamily: 'Medium',
+                                    ),
+                                  );
+                                }
+                                final docs = snapshot.data?.docs ?? const [];
+                                return _buildAnalyticsCard(
+                                  icon: Icons.health_and_safety,
+                                  color: Colors.deepPurpleAccent,
+                                  title:
+                                      'Health Surveillance & Disease Prevention',
+                                  description:
+                                      'Health declarations, vaccination uploads, exposure and contact tracing.',
+                                  value: docs.length,
+                                  valueLabel: 'Health Declarations',
+                                );
+                              }),
+                          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                              stream: FirebaseFirestore.instance
+                                  .collection('common_dialects')
+                                  .snapshots(),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState ==
+                                    ConnectionState.waiting) {
+                                  return const Center(
+                                      child: CircularProgressIndicator());
+                                }
+                                if (snapshot.hasError) {
+                                  return Center(
+                                    child: TextWidget(
+                                      text: 'Error loading merchants',
+                                      fontSize: 16,
+                                      color: Colors.red,
+                                      fontFamily: 'Medium',
+                                    ),
+                                  );
+                                }
+                                final docs = snapshot.data?.docs ?? const [];
+                                return _buildAnalyticsCard(
+                                  icon: Icons.translate,
+                                  color: Colors.amber,
+                                  title: 'Crowdsourced Dialects & Language',
+                                  description:
+                                      'Dialect phrases, usage, town tags, and community verification.',
+                                  value: docs.length,
+                                  valueLabel: 'Dialect Entries',
+                                );
+                              }),
                         ]
                             .map((card) =>
                                 SizedBox(width: cardWidth, child: card))
