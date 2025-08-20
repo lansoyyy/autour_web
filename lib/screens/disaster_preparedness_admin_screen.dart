@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:autour_web/utils/const.dart' as c;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart' as latlng;
 
 class DisasterPreparednessAdminScreen extends StatefulWidget {
   const DisasterPreparednessAdminScreen({super.key});
@@ -18,6 +20,7 @@ class DisasterPreparednessAdminScreen extends StatefulWidget {
 
 class _DisasterPreparednessAdminScreenState
     extends State<DisasterPreparednessAdminScreen> {
+  static const String _usersCollection = 'users';
   bool _isLoading = false;
   String? _errorMessage;
   Map<String, String> weatherData = {
@@ -72,6 +75,206 @@ class _DisasterPreparednessAdminScreenState
 
   void _refreshWeather() {
     _fetchWeather();
+  }
+
+  // --- Interactive Map Integration: Users on Map ---
+  Widget _buildInteractiveUserMapCard() {
+    return Container(
+      height: 320,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primary.withOpacity(0.2)),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection(_usersCollection)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(
+                child: TextWidget(
+                  text: 'Failed to load users',
+                  fontSize: 14,
+                  color: Colors.red,
+                  fontFamily: 'Regular',
+                ),
+              );
+            }
+
+            final docs = snapshot.data?.docs ?? [];
+            final markers = <Marker>[];
+            for (final d in docs) {
+              final data = d.data();
+              final lat = (data['latitude'] as num?)?.toDouble();
+              final lng = (data['longitude'] as num?)?.toDouble();
+              if (lat == null || lng == null) continue;
+              final user = {
+                'fullName': data['fullName'],
+                'dob': data['dob'],
+                'nationality': data['nationality'],
+                'email': data['email'],
+                'mobile': data['mobile'],
+                'emergencyContactName': data['emergencyContactName'],
+                'emergencyContactNumber': data['emergencyContactNumber'],
+                'medicalConditions': data['medicalConditions'],
+                'address': data['address'],
+                'latitude': lat,
+                'longitude': lng,
+                'preferences': data['preferences'],
+                'sustainability': data['sustainability'],
+                'role': data['role'],
+                'createdAt': data['createdAt'],
+                'updatedAt': data['updatedAt'],
+              };
+              markers.add(
+                Marker(
+                  width: 44,
+                  height: 44,
+                  point: latlng.LatLng(lat, lng),
+                  child: GestureDetector(
+                    onTap: () => _showUserDetailsDialog(user),
+                    child: const Icon(
+                      Icons.location_pin,
+                      color: Colors.redAccent,
+                      size: 36,
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            return FlutterMap(
+              options: MapOptions(
+                initialCenter: latlng.LatLng(c.auroraLat, c.auroraLon),
+                initialZoom: 11,
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate:
+                      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  subdomains: const ['a', 'b', 'c'],
+                  userAgentPackageName: 'autour_web',
+                  retinaMode: MediaQuery.of(context).devicePixelRatio > 1.5,
+                ),
+                MarkerLayer(markers: markers),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  void _showUserDetailsDialog(Map<String, dynamic> user) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: TextWidget(
+            text: user['fullName']?.toString() ?? 'User Details',
+            fontSize: 20,
+            color: primary,
+            fontFamily: 'Bold',
+          ),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _detailRow('Full name', user['fullName']),
+                  _detailRow('Date of birth', user['dob']),
+                  _detailRow('Nationality', user['nationality']),
+                  _detailRow('Email', user['email']),
+                  _detailRow('Mobile', user['mobile']),
+                  _detailRow('Emergency contact', user['emergencyContactName']),
+                  _detailRow(
+                      'Emergency number', user['emergencyContactNumber']),
+                  _detailRow('Medical conditions', user['medicalConditions']),
+                  _detailRow('Address', user['address']),
+                  _detailRow('Latitude', user['latitude']?.toString()),
+                  _detailRow('Longitude', user['longitude']?.toString()),
+                  _detailRow('Role', user['role']),
+                  _detailRow('Preferences', _formatList(user['preferences'])),
+                  _detailRow(
+                      'Sustainability', _formatList(user['sustainability'])),
+                  _detailRow('Created at', _formatTimestamp(user['createdAt'])),
+                  _detailRow('Updated at', _formatTimestamp(user['updatedAt'])),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: TextWidget(
+                text: 'Close',
+                fontSize: 14,
+                color: grey,
+                fontFamily: 'Regular',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _formatList(dynamic value) {
+    if (value == null) return '—';
+    if (value is List) return value.join(', ');
+    return value.toString();
+  }
+
+  String _formatTimestamp(dynamic value) {
+    try {
+      if (value == null) return '—';
+      if (value is Timestamp) {
+        final dt = value.toDate();
+        return DateFormat('y-MM-dd HH:mm').format(dt);
+      }
+      return value.toString();
+    } catch (_) {
+      return value.toString();
+    }
+  }
+
+  Widget _detailRow(String label, dynamic value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 150,
+            child: TextWidget(
+              text: label,
+              fontSize: 13,
+              color: grey,
+              fontFamily: 'Regular',
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextWidget(
+              text: (value == null || value.toString().isEmpty)
+                  ? '—'
+                  : value.toString(),
+              fontSize: 14,
+              color: black,
+              fontFamily: 'Medium',
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -564,18 +767,7 @@ class _DisasterPreparednessAdminScreenState
                   ],
                 ),
                 const SizedBox(height: 18),
-                Container(
-                  height: 220,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: primary.withOpacity(0.2)),
-                  ),
-                  child: const Center(
-                    child: Text('Map (integration placeholder)'),
-                  ),
-                ),
+                _buildInteractiveUserMapCard(),
               ],
             ),
           ),

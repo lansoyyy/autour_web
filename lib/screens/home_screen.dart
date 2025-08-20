@@ -134,15 +134,6 @@ class HomeScreen extends StatelessWidget {
                             valueLabel: 'Check-ins',
                           ),
                           _buildAnalyticsCard(
-                            icon: Icons.chat_bubble_outline,
-                            color: Colors.teal,
-                            title: 'Chatbot Interaction Logs',
-                            description:
-                                'AI chatbot conversations, accessibility prompts, and service requests.',
-                            value: 312,
-                            valueLabel: 'Chats Today',
-                          ),
-                          _buildAnalyticsCard(
                             icon: Icons.map,
                             color: Colors.green,
                             title: 'Smart Tourism Map & Metadata',
@@ -195,15 +186,6 @@ class HomeScreen extends StatelessWidget {
                                 'Visitor identity, access logs, emergency profile access, and offline sync.',
                             value: 10432,
                             valueLabel: 'QR Scans',
-                          ),
-                          _buildAnalyticsCard(
-                            icon: Icons.people_alt,
-                            color: Colors.pink,
-                            title: 'AI Smart Visitor Counting',
-                            description:
-                                'Camera counts, attraction stats, heat maps, and QR fallback logs.',
-                            value: 2345,
-                            valueLabel: 'Visitors Today',
                           ),
                           _buildAnalyticsCard(
                             icon: Icons.health_and_safety,
