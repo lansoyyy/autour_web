@@ -3,6 +3,7 @@ import 'package:autour_web/utils/colors.dart';
 import 'package:autour_web/widgets/text_widget.dart';
 import 'package:autour_web/widgets/button_widget.dart';
 import 'package:autour_web/widgets/textfield_widget.dart';
+import 'package:autour_web/widgets/toast_widget.dart';
 import 'package:autour_web/screens/home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -19,6 +20,10 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   bool _isObscure = true;
 
+  // Hardcoded credentials
+  static const String _hardcodedUsername = 'autour_admin';
+  static const String _hardcodedPassword = 'autour_admin';
+
   @override
   void dispose() {
     emailController.dispose();
@@ -28,19 +33,36 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
+
     setState(() {
       _isLoading = true;
     });
-    // Simulate API call
-    await Future.delayed(const Duration(seconds: 2));
+
+    // Simulate API call delay
+    await Future.delayed(const Duration(seconds: 1));
+
     if (mounted) {
-      setState(() {
-        _isLoading = false;
-      });
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
-      );
+      // Check hardcoded credentials
+      String enteredUsername = emailController.text.trim();
+      String enteredPassword = passwordController.text.trim();
+
+      if (enteredUsername == _hardcodedUsername &&
+          enteredPassword == _hardcodedPassword) {
+        // Login successful
+        setState(() {
+          _isLoading = false;
+        });
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+        );
+      } else {
+        // Login failed
+        setState(() {
+          _isLoading = false;
+        });
+        showToast('Invalid username or password. Please try again.');
+      }
     }
   }
 
@@ -91,12 +113,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     fontFamily: 'Regular',
                   ),
                   const SizedBox(height: 32),
-                  // Email Field
+                  // Username Field
                   TextFieldWidget(
-                    label: 'Email Address',
-                    hint: 'Enter your email',
+                    label: 'Username',
+                    hint: 'Enter your username',
                     controller: emailController,
-                    inputType: TextInputType.emailAddress,
+                    inputType: TextInputType.text,
                     borderColor: primary,
                     hintColor: grey,
                     width: 350,
@@ -105,11 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     hasValidator: true,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Please enter your email';
-                      }
-                      if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}\$')
-                          .hasMatch(value)) {
-                        return 'Enter a valid email address';
+                        return 'Please enter your username';
                       }
                       return null;
                     },
