@@ -98,24 +98,81 @@ class _DisasterPreparednessAdminScreenState
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
+              print('Firestore error: ${snapshot.error}');
               return Center(
-                child: TextWidget(
-                  text: 'Failed to load users',
-                  fontSize: 14,
-                  color: Colors.red,
-                  fontFamily: 'Regular',
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.error, color: Colors.red, size: 48),
+                    const SizedBox(height: 8),
+                    TextWidget(
+                      text: 'Failed to load users',
+                      fontSize: 14,
+                      color: Colors.red,
+                      fontFamily: 'Regular',
+                    ),
+                    TextWidget(
+                      text: 'Error: ${snapshot.error}',
+                      fontSize: 12,
+                      color: Colors.red,
+                      fontFamily: 'Regular',
+                    ),
+                  ],
                 ),
               );
             }
 
             final docs = snapshot.data?.docs ?? [];
+            print('Total users found: ${docs.length}');
+
+            if (docs.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.location_off, color: grey, size: 48),
+                    const SizedBox(height: 8),
+                    TextWidget(
+                      text: 'No users found in database',
+                      fontSize: 16,
+                      color: grey,
+                      fontFamily: 'Medium',
+                    ),
+                    const SizedBox(height: 4),
+                    TextWidget(
+                      text: 'Users will appear here once they register',
+                      fontSize: 12,
+                      color: grey,
+                      fontFamily: 'Regular',
+                    ),
+                  ],
+                ),
+              );
+            }
+
             final markers = <Marker>[];
+            int validLocationCount = 0;
+
             for (final d in docs) {
               final data = d.data();
+              print(
+                  'Processing user: ${data['fullName']} with data: ${data.keys.toList()}');
+
               final lat = (data['latitude'] as num?)?.toDouble();
               final lng = (data['longitude'] as num?)?.toDouble();
-              if (lat == null || lng == null) continue;
+
+              print('User ${data['fullName']}: lat=$lat, lng=$lng');
+
+              if (lat == null || lng == null) {
+                print(
+                    'Skipping user ${data['fullName']} - missing coordinates');
+                continue;
+              }
+
+              validLocationCount++;
+
               final user = {
+                'id': d.id,
                 'fullName': data['fullName'],
                 'dob': data['dob'],
                 'nationality': data['nationality'],
@@ -133,37 +190,65 @@ class _DisasterPreparednessAdminScreenState
                 'createdAt': data['createdAt'],
                 'updatedAt': data['updatedAt'],
               };
+
               markers.add(
                 Marker(
                   width: 44,
                   height: 44,
                   point: latlng.LatLng(lat, lng),
                   child: GestureDetector(
-                    onTap: () => _showUserDetailsDialog(user),
-                    child: const Icon(
-                      Icons.location_pin,
-                      color: Colors.redAccent,
-                      size: 36,
+                    onTap: () {
+                      print('Marker tapped for user: ${user['fullName']}');
+                      _showUserDetailsDialog(user);
+                    },
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.3),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.person_pin_circle,
+                        color: Colors.redAccent,
+                        size: 36,
+                      ),
                     ),
                   ),
                 ),
               );
             }
 
-            return FlutterMap(
-              options: MapOptions(
-                initialCenter: latlng.LatLng(c.auroraLat, c.auroraLon),
-                initialZoom: 11,
-              ),
+            print('Valid users with coordinates: $validLocationCount');
+            print('Total markers created: ${markers.length}');
+
+            return Stack(
               children: [
-                TileLayer(
-                  urlTemplate:
-                      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  subdomains: const ['a', 'b', 'c'],
-                  userAgentPackageName: 'autour_web',
-                  retinaMode: MediaQuery.of(context).devicePixelRatio > 1.5,
+                FlutterMap(
+                  options: MapOptions(
+                    initialCenter: latlng.LatLng(c.auroraLat, c.auroraLon),
+                    initialZoom: 11,
+                    minZoom: 5,
+                    maxZoom: 18,
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate:
+                          'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      subdomains: const ['a', 'b', 'c'],
+                      userAgentPackageName: 'autour_web',
+                      retinaMode: MediaQuery.of(context).devicePixelRatio > 1.5,
+                    ),
+                    MarkerLayer(markers: markers),
+                  ],
                 ),
-                MarkerLayer(markers: markers),
               ],
             );
           },
