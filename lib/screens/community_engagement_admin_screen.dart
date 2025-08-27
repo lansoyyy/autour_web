@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:typed_data';
+import 'package:universal_html/html.dart' as html;
 import 'package:autour_web/utils/colors.dart';
 import 'package:autour_web/widgets/text_widget.dart';
 import 'package:autour_web/widgets/button_widget.dart';
@@ -475,85 +478,360 @@ class _CommunityEngagementAdminScreenState
     final imageController = TextEditingController(text: story?['image'] ?? '');
     final formKey = GlobalKey<FormState>();
 
+    // Variables for image handling
+    Uint8List? _webImageBytes;
+    String? _imageName;
+    bool _isImageUploading = false;
+
+    // Function to pick image using web file input
+    Future<void> _pickImage(StateSetter setState) async {
+      // Create an input element for file selection
+      final html.FileUploadInputElement uploadInput =
+          html.FileUploadInputElement()
+            ..accept = 'image/*'
+            ..multiple = false;
+
+      // Add a change listener to handle file selection
+      uploadInput.onChange.listen((e) async {
+        if (uploadInput.files!.isNotEmpty) {
+          final file = uploadInput.files![0];
+
+          // Read the file as bytes
+          final reader = html.FileReader();
+          reader.readAsArrayBuffer(file);
+
+          reader.onLoadEnd.listen((e) async {
+            if (reader.result != null) {
+              final bytes = Uint8List.fromList(reader.result as List<int>);
+              setState(() {
+                _webImageBytes = bytes;
+                _imageName = file.name;
+              });
+            }
+          });
+        }
+      });
+
+      // Trigger the file selection dialog
+      uploadInput.click();
+    }
+
+    // Function to upload image to Firebase Storage
+    Future<String?> _uploadImageToFirebase() async {
+      // If we have web image bytes, we can upload those
+      if (_webImageBytes != null && _imageName != null) {
+        try {
+          // Create a reference to the Firebase Storage bucket
+          final storageRef = FirebaseStorage.instance.ref();
+
+          // Generate a unique filename
+          final timestamp = DateTime.now().millisecondsSinceEpoch;
+          final imageName = 'community_stories/${timestamp}_$_imageName';
+
+          // Create a reference to the image file
+          final imageRef = storageRef.child(imageName);
+
+          // Upload the file
+          final uploadTask = imageRef.putData(_webImageBytes!);
+
+          // Wait for the upload to complete
+          final snapshot = await uploadTask;
+
+          // Get the download URL
+          final downloadUrl = await snapshot.ref.getDownloadURL();
+
+          return downloadUrl;
+        } catch (e) {
+          print('Error uploading image: $e');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error uploading image: $e')),
+          );
+          return null;
+        }
+      }
+
+      // If we don't have image bytes but have a URL in the controller, use that
+      if (imageController.text.isNotEmpty) {
+        return imageController.text;
+      }
+
+      return null;
+    }
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: TextWidget(
-          text: story == null ? 'Add Story' : 'Edit Story',
-          fontSize: 20,
-          color: primary,
-          fontFamily: 'Bold',
-        ),
-        content: SizedBox(
-          width: 400,
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(labelText: 'Title'),
-                ),
-                TextField(
-                  controller: authorController,
-                  decoration: const InputDecoration(labelText: 'Author'),
-                ),
-                TextField(
-                  controller: contentController,
-                  decoration: const InputDecoration(labelText: 'Content'),
-                  maxLines: 3,
-                ),
-                TextField(
-                  controller: imageController,
-                  decoration: const InputDecoration(labelText: 'Image URL'),
-                ),
-              ],
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: TextWidget(
+              text: story == null ? 'Add Story' : 'Edit Story',
+              fontSize: 20,
+              color: primary,
+              fontFamily: 'Bold',
             ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: TextWidget(
-              text: 'Cancel',
-              fontSize: 14,
-              color: grey,
-              fontFamily: 'Regular',
+            content: SizedBox(
+              width: 400,
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: titleController,
+                      decoration: const InputDecoration(labelText: 'Title'),
+                    ),
+                    TextField(
+                      controller: authorController,
+                      decoration: const InputDecoration(labelText: 'Author'),
+                    ),
+                    TextField(
+                      controller: contentController,
+                      decoration: const InputDecoration(labelText: 'Content'),
+                      maxLines: 3,
+                    ),
+                    // Image Picker Section
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 16),
+                        Text(
+                          'Story Image',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: black,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            ElevatedButton(
+                              onPressed: _isImageUploading
+                                  ? null
+                                  : () => _pickImage(setState),
+                              child: Text(_webImageBytes != null
+                                  ? 'Change Image'
+                                  : 'Select Image'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: primary,
+                                foregroundColor: white,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            if (_webImageBytes != null)
+                              Container(
+                                width: 80,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: primary, width: 2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: primary.withOpacity(0.3),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.memory(
+                                    _webImageBytes!,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                              )
+                            else if (imageController.text.isNotEmpty)
+                              Container(
+                                width: 80,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: primary, width: 2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: primary.withOpacity(0.3),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.network(
+                                    imageController.text,
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) => Icon(
+                                            Icons.error,
+                                            color: Colors.red,
+                                            size: 40),
+                                  ),
+                                ),
+                              )
+                            else
+                              Container(
+                                width: 80,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: grey, width: 2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  color: grey.withOpacity(0.1),
+                                ),
+                                child: Icon(
+                                  Icons.image,
+                                  color: grey,
+                                  size: 40,
+                                ),
+                              ),
+                          ],
+                        ),
+                        if (_webImageBytes != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Row(
+                              children: [
+                                Icon(Icons.check_circle,
+                                    color: Colors.green, size: 16),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Image selected: $_imageName',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else if (imageController.text.isNotEmpty)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 8.0),
+                            child: Row(
+                              children: [
+                                Icon(Icons.check_circle,
+                                    color: Colors.blue, size: 16),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Existing image loaded',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.blue,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          const Padding(
+                            padding: EdgeInsets.only(top: 8.0),
+                            child: Text(
+                              'No image selected',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: imageController,
+                          decoration: const InputDecoration(
+                            labelText: 'Or enter Image URL',
+                            hintText: 'https://example.com/image.jpg',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-          ButtonWidget(
-            label: story == null ? 'Add' : 'Update',
-            onPressed: () async {
-              if (formKey.currentState == null ||
-                  !formKey.currentState!.validate()) return;
-              final data = {
-                'title': titleController.text,
-                'author': authorController.text,
-                'content': contentController.text,
-                'image': imageController.text,
-              };
-              try {
-                if (story == null) {
-                  await _addStory(data);
-                } else if (index != null) {
-                  await _updateStory(index, data);
-                }
-                Navigator.pop(context);
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error saving story: $e')),
-                );
-              }
-            },
-            color: primary,
-            textColor: white,
-            width: 100,
-            height: 45,
-            fontSize: 16,
-            radius: 10,
-          ),
-        ],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: TextWidget(
+                  text: 'Cancel',
+                  fontSize: 14,
+                  color: grey,
+                  fontFamily: 'Regular',
+                ),
+              ),
+              ButtonWidget(
+                label: _isImageUploading
+                    ? 'Uploading...'
+                    : (story == null ? 'Add' : 'Update'),
+                onPressed: _isImageUploading
+                    ? () {}
+                    : () async {
+                        if (formKey.currentState == null ||
+                            !formKey.currentState!.validate()) return;
+
+                        setState(() {
+                          _isImageUploading = true;
+                        });
+
+                        String? imageUrl = imageController.text;
+
+                        // Upload image if selected
+                        if (_webImageBytes != null) {
+                          imageUrl = await _uploadImageToFirebase();
+                          if (imageUrl == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                    'Failed to upload image. Please try again.'),
+                              ),
+                            );
+                            setState(() {
+                              _isImageUploading = false;
+                            });
+                            return;
+                          }
+                        }
+
+                        final data = {
+                          'title': titleController.text,
+                          'author': authorController.text,
+                          'content': contentController.text,
+                          'image': imageUrl,
+                        };
+
+                        try {
+                          if (story == null) {
+                            await _addStory(data);
+                          } else if (index != null) {
+                            await _updateStory(index, data);
+                          }
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Error saving story: $e')),
+                            );
+                          }
+                        } finally {
+                          if (context.mounted) {
+                            setState(() {
+                              _isImageUploading = false;
+                            });
+                          }
+                        }
+                      },
+                color: primary,
+                textColor: white,
+                width: 100,
+                height: 45,
+                fontSize: 16,
+                radius: 10,
+              ),
+            ],
+          );
+        },
       ),
     );
   }

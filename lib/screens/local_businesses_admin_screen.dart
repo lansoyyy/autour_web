@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:typed_data';
+import 'package:universal_html/html.dart' as html;
 import 'package:autour_web/utils/colors.dart';
 import 'package:autour_web/widgets/text_widget.dart';
 import 'package:autour_web/widgets/button_widget.dart';
@@ -176,6 +179,82 @@ class _LocalBusinessesAdminScreenState
     );
     final imageController = TextEditingController(text: business?.image ?? '');
     final formKey = GlobalKey<FormState>();
+    String? _uploadedImageUrl;
+    Uint8List? _webImageBytes;
+    String? _imageName;
+
+    Future<void> _pickImage(StateSetter setState) async {
+      // Create an input element for file selection
+      final html.FileUploadInputElement uploadInput =
+          html.FileUploadInputElement()
+            ..accept = 'image/*'
+            ..multiple = false;
+
+      // Add a change listener to handle file selection
+      uploadInput.onChange.listen((e) async {
+        if (uploadInput.files!.isNotEmpty) {
+          final file = uploadInput.files![0];
+
+          // Read the file as bytes
+          final reader = html.FileReader();
+          reader.readAsArrayBuffer(file);
+
+          reader.onLoadEnd.listen((e) async {
+            if (reader.result != null) {
+              final bytes = Uint8List.fromList(reader.result as List<int>);
+              setState(() {
+                _webImageBytes = bytes;
+                _imageName = file.name;
+              });
+            }
+          });
+        }
+      });
+
+      // Trigger the file selection dialog
+      uploadInput.click();
+    }
+
+    Future<String?> _uploadImageToFirebase() async {
+      // If we have web image bytes, we can upload those
+      if (_webImageBytes != null && _imageName != null) {
+        try {
+          // Create a reference to the Firebase Storage bucket
+          final storageRef = FirebaseStorage.instance.ref();
+
+          // Generate a unique filename
+          final timestamp = DateTime.now().millisecondsSinceEpoch;
+          final imageName = 'business_images/${timestamp}_$_imageName';
+
+          // Create a reference to the image file
+          final imageRef = storageRef.child(imageName);
+
+          // Upload the file
+          final uploadTask = imageRef.putData(_webImageBytes!);
+
+          // Wait for the upload to complete
+          final snapshot = await uploadTask;
+
+          // Get the download URL
+          final downloadUrl = await snapshot.ref.getDownloadURL();
+
+          return downloadUrl;
+        } catch (e) {
+          print('Error uploading image: $e');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error uploading image: $e')),
+          );
+          return null;
+        }
+      }
+
+      // If we don't have image bytes but have a URL in the controller, use that
+      if (imageController.text.isNotEmpty) {
+        return imageController.text;
+      }
+
+      return null;
+    }
 
     showDialog(
       context: context,
@@ -390,15 +469,143 @@ class _LocalBusinessesAdminScreenState
                       radius: 10,
                       hasValidator: false,
                     ),
-                    TextFieldWidget(
-                      label: 'Image URL',
-                      controller: imageController,
-                      borderColor: primary,
-                      hintColor: grey,
-                      width: 350,
-                      height: 60,
-                      radius: 10,
-                      hasValidator: false,
+                    // Image Picker Section
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TextWidget(
+                          text: 'Business Image',
+                          fontSize: 16,
+                          color: black,
+                          fontFamily: 'Bold',
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            ElevatedButton(
+                              onPressed: () => _pickImage(setState),
+                              child: Text(_webImageBytes != null
+                                  ? 'Change Image'
+                                  : 'Select Image'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: primary,
+                                foregroundColor: white,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            if (_webImageBytes != null)
+                              Container(
+                                width: 80,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: primary, width: 2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: primary.withOpacity(0.3),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.memory(
+                                    _webImageBytes!,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                              )
+                            else if (imageController.text.isNotEmpty)
+                              Container(
+                                width: 80,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: primary, width: 2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: primary.withOpacity(0.3),
+                                      blurRadius: 4,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.network(
+                                    imageController.text,
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) => Icon(
+                                            Icons.error,
+                                            color: Colors.red,
+                                            size: 40),
+                                  ),
+                                ),
+                              )
+                            else
+                              Container(
+                                width: 80,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: grey, width: 2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  color: grey.withOpacity(0.1),
+                                ),
+                                child: Icon(
+                                  Icons.image,
+                                  color: grey,
+                                  size: 40,
+                                ),
+                              ),
+                          ],
+                        ),
+                        if (_webImageBytes != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Row(
+                              children: [
+                                Icon(Icons.check_circle,
+                                    color: Colors.green, size: 16),
+                                const SizedBox(width: 4),
+                                TextWidget(
+                                  text: 'Image selected: $_imageName',
+                                  fontSize: 12,
+                                  color: Colors.green,
+                                  fontFamily: 'Medium',
+                                ),
+                              ],
+                            ),
+                          )
+                        else if (imageController.text.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Row(
+                              children: [
+                                Icon(Icons.check_circle,
+                                    color: Colors.blue, size: 16),
+                                SizedBox(width: 4),
+                                TextWidget(
+                                  text: 'Existing image loaded',
+                                  fontSize: 12,
+                                  color: Colors.blue,
+                                  fontFamily: 'Medium',
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: TextWidget(
+                              text: 'No image selected',
+                              fontSize: 12,
+                              color: grey,
+                              fontFamily: 'Regular',
+                            ),
+                          ),
+                      ],
                     ),
                     // TODO: Add dynamic fields for prices and fares if needed
                   ],
@@ -419,8 +626,23 @@ class _LocalBusinessesAdminScreenState
           ),
           ButtonWidget(
             label: business == null ? 'Add' : 'Update',
-            onPressed: () {
+            onPressed: () async {
               if (formKey.currentState!.validate()) {
+                String? imageUrl = imageController.text;
+
+                // Upload image if selected
+                if (_webImageBytes != null) {
+                  imageUrl = await _uploadImageToFirebase();
+                  if (imageUrl == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                          content: Text(
+                              'Failed to upload image. Please try again.')),
+                    );
+                    return;
+                  }
+                }
+
                 if (business == null) {
                   addBusiness(Business(
                     name: nameController.text,
@@ -454,7 +676,7 @@ class _LocalBusinessesAdminScreenState
                                           v.split('=')[1].trim()),
                                     )))))
                         : null,
-                    image: imageController.text,
+                    image: imageUrl,
                   ));
                 } else if (id != null) {
                   updateBusiness(
@@ -495,7 +717,7 @@ class _LocalBusinessesAdminScreenState
                                                   v.split('=')[1].trim()),
                                             )))))
                             : null,
-                        image: imageController.text,
+                        image: imageUrl,
                       ));
                 }
                 Navigator.pop(context);
@@ -771,7 +993,26 @@ class _LocalBusinessesAdminScreenState
             children: [
               Row(
                 children: [
-                  Icon(Icons.store, color: primary, size: 28),
+                  if (business.image != null && business.image!.isNotEmpty)
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: primary),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          business.image!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              Icon(Icons.store, color: primary, size: 28),
+                        ),
+                      ),
+                    )
+                  else
+                    Icon(Icons.store, color: primary, size: 28),
                   const SizedBox(width: 12),
                   Expanded(
                     child: TextWidget(
