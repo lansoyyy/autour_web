@@ -24,7 +24,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'AuTour',
-      home: const HomeScreen(),
+      home: const LoginScreen(),
     );
   }
 }
