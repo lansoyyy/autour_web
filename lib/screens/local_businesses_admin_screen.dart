@@ -7,6 +7,9 @@ import 'package:autour_web/utils/colors.dart';
 import 'package:autour_web/widgets/text_widget.dart';
 import 'package:autour_web/widgets/button_widget.dart';
 import 'package:autour_web/widgets/textfield_widget.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'dart:math' as math;
 
 final FirebaseFirestore firestore = FirebaseFirestore.instance;
 
@@ -25,6 +28,14 @@ class Business {
   Map<String, dynamic>? prices;
   Map<String, dynamic>? fares;
   String? image;
+  // Social media fields
+  String? tiktok;
+  String? facebook;
+  String? instagram;
+  String? telegram;
+  // Geolocation fields
+  double? latitude;
+  double? longitude;
 
   Business({
     required this.name,
@@ -41,6 +52,12 @@ class Business {
     this.prices,
     this.fares,
     this.image,
+    this.tiktok,
+    this.facebook,
+    this.instagram,
+    this.telegram,
+    this.latitude,
+    this.longitude,
   });
 }
 
@@ -73,6 +90,7 @@ class _LocalBusinessesAdminScreenState
   List<String> businessIds = [];
   final _searchController = TextEditingController();
   String _searchQuery = '';
+  bool _isMapView = false;
 
   void _setupFirestoreListener() {
     businessesRef.snapshots().listen((snapshot) {
@@ -94,6 +112,14 @@ class _LocalBusinessesAdminScreenState
             prices: data['prices']?.cast<String, dynamic>(),
             fares: data['fares']?.cast<String, dynamic>(),
             image: data['image'],
+            // Social media fields
+            tiktok: data['tiktok'],
+            facebook: data['facebook'],
+            instagram: data['instagram'],
+            telegram: data['telegram'],
+            // Geolocation fields
+            latitude: data['latitude'],
+            longitude: data['longitude'],
           );
         }).toList();
         businessIds = snapshot.docs.map((doc) => doc.id).toList();
@@ -117,6 +143,14 @@ class _LocalBusinessesAdminScreenState
       'prices': business.prices,
       'fares': business.fares,
       'image': business.image,
+      // Social media fields
+      'tiktok': business.tiktok,
+      'facebook': business.facebook,
+      'instagram': business.instagram,
+      'telegram': business.telegram,
+      // Geolocation fields
+      'latitude': business.latitude,
+      'longitude': business.longitude,
     });
   }
 
@@ -136,6 +170,14 @@ class _LocalBusinessesAdminScreenState
       'prices': business.prices,
       'fares': business.fares,
       'image': business.image,
+      // Social media fields
+      'tiktok': business.tiktok,
+      'facebook': business.facebook,
+      'instagram': business.instagram,
+      'telegram': business.telegram,
+      // Geolocation fields
+      'latitude': business.latitude,
+      'longitude': business.longitude,
     });
   }
 
@@ -178,10 +220,30 @@ class _LocalBusinessesAdminScreenState
           '',
     );
     final imageController = TextEditingController(text: business?.image ?? '');
+    // Social media controllers
+    final tiktokController =
+        TextEditingController(text: business?.tiktok ?? '');
+    final facebookController =
+        TextEditingController(text: business?.facebook ?? '');
+    final instagramController =
+        TextEditingController(text: business?.instagram ?? '');
+    final telegramController =
+        TextEditingController(text: business?.telegram ?? '');
+    // Geolocation controllers
+    final latitudeController =
+        TextEditingController(text: business?.latitude?.toString() ?? '');
+    final longitudeController =
+        TextEditingController(text: business?.longitude?.toString() ?? '');
+
     final formKey = GlobalKey<FormState>();
     String? _uploadedImageUrl;
     Uint8List? _webImageBytes;
     String? _imageName;
+    // Map variables
+    LatLng? _selectedLocation =
+        business?.latitude != null && business?.longitude != null
+            ? LatLng(business!.latitude!, business.longitude!)
+            : null;
 
     Future<void> _pickImage(StateSetter setState) async {
       // Create an input element for file selection
@@ -254,6 +316,29 @@ class _LocalBusinessesAdminScreenState
       }
 
       return null;
+    }
+
+    // Function to handle map tap for location selection
+    void _handleMapTap(LatLng latLng, StateSetter setState) {
+      setState(() {
+        _selectedLocation = latLng;
+        latitudeController.text = latLng.latitude.toString();
+        longitudeController.text = latLng.longitude.toString();
+      });
+    }
+
+    // Function to generate random coordinates near Aurora Province for demo
+    LatLng _generateRandomLocation() {
+      // Aurora Province coordinates (approximate center)
+      const double centerLat = 15.7589;
+      const double centerLon = 121.5623;
+
+      // Generate random offset within ~0.1 degrees (about 11km)
+      final random = math.Random();
+      final latOffset = (random.nextDouble() - 0.5) * 0.2;
+      final lonOffset = (random.nextDouble() - 0.5) * 0.2;
+
+      return LatLng(centerLat + latOffset, centerLon + lonOffset);
     }
 
     showDialog(
@@ -469,6 +554,184 @@ class _LocalBusinessesAdminScreenState
                       radius: 10,
                       hasValidator: false,
                     ),
+                    // Social Media Accounts Section
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TextWidget(
+                          text: 'Social Media Accounts',
+                          fontSize: 16,
+                          color: black,
+                          fontFamily: 'Bold',
+                        ),
+                        const SizedBox(height: 8),
+                        TextFieldWidget(
+                          label: 'TikTok',
+                          controller: tiktokController,
+                          borderColor: primary,
+                          hintColor: grey,
+                          width: 350,
+                          height: 60,
+                          radius: 10,
+                          hasValidator: false,
+                          hint: 'https://tiktok.com/@username',
+                        ),
+                        TextFieldWidget(
+                          label: 'Facebook',
+                          controller: facebookController,
+                          borderColor: primary,
+                          hintColor: grey,
+                          width: 350,
+                          height: 60,
+                          radius: 10,
+                          hasValidator: false,
+                          hint: 'https://facebook.com/page',
+                        ),
+                        TextFieldWidget(
+                          label: 'Instagram',
+                          controller: instagramController,
+                          borderColor: primary,
+                          hintColor: grey,
+                          width: 350,
+                          height: 60,
+                          radius: 10,
+                          hasValidator: false,
+                          hint: 'https://instagram.com/username',
+                        ),
+                        TextFieldWidget(
+                          label: 'Telegram',
+                          controller: telegramController,
+                          borderColor: primary,
+                          hintColor: grey,
+                          width: 350,
+                          height: 60,
+                          radius: 10,
+                          hasValidator: false,
+                          hint: 'https://t.me/username',
+                        ),
+                      ],
+                    ),
+                    // Geolocation Section
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TextWidget(
+                          text: 'Geolocation',
+                          fontSize: 16,
+                          color: black,
+                          fontFamily: 'Bold',
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFieldWidget(
+                                label: 'Latitude',
+                                controller: latitudeController,
+                                borderColor: primary,
+                                hintColor: grey,
+                                width: 165,
+                                height: 60,
+                                radius: 10,
+                                hasValidator: false,
+                                inputType: TextInputType.numberWithOptions(
+                                    decimal: true, signed: true),
+                              ),
+                            ),
+                            const SizedBox(width: 20),
+                            Expanded(
+                              child: TextFieldWidget(
+                                label: 'Longitude',
+                                controller: longitudeController,
+                                borderColor: primary,
+                                hintColor: grey,
+                                width: 165,
+                                height: 60,
+                                radius: 10,
+                                hasValidator: false,
+                                inputType: TextInputType.numberWithOptions(
+                                    decimal: true, signed: true),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        // Map for selecting location
+                        Container(
+                          height: 200,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: primary),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: FlutterMap(
+                              options: MapOptions(
+                                initialCenter: _selectedLocation ??
+                                    const LatLng(15.7589, 121.5623),
+                                initialZoom: 12.0,
+                                onTap: (tapPosition, latLng) =>
+                                    _handleMapTap(latLng, setState),
+                              ),
+                              children: [
+                                TileLayer(
+                                  urlTemplate:
+                                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                  userAgentPackageName: 'autour_web',
+                                ),
+                                MarkerLayer(
+                                  markers: [
+                                    if (_selectedLocation != null)
+                                      Marker(
+                                        point: _selectedLocation!,
+                                        width: 80,
+                                        height: 80,
+                                        child: Icon(
+                                          Icons.location_pin,
+                                          color: Colors.red,
+                                          size: 40,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            ElevatedButton(
+                              onPressed: () {
+                                final randomLocation =
+                                    _generateRandomLocation();
+                                _handleMapTap(randomLocation, setState);
+                              },
+                              child: Text('Generate Random Location'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: primary,
+                                foregroundColor: white,
+                              ),
+                            ),
+                            ElevatedButton(
+                              onPressed: () {
+                                setState(() {
+                                  _selectedLocation = null;
+                                  latitudeController.clear();
+                                  longitudeController.clear();
+                                });
+                              },
+                              child: Text('Clear Location'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                foregroundColor: white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                     // Image Picker Section
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -643,6 +906,15 @@ class _LocalBusinessesAdminScreenState
                   }
                 }
 
+                // Parse latitude and longitude
+                double? latitude, longitude;
+                if (latitudeController.text.isNotEmpty) {
+                  latitude = double.tryParse(latitudeController.text);
+                }
+                if (longitudeController.text.isNotEmpty) {
+                  longitude = double.tryParse(longitudeController.text);
+                }
+
                 if (business == null) {
                   addBusiness(Business(
                     name: nameController.text,
@@ -677,6 +949,14 @@ class _LocalBusinessesAdminScreenState
                                     )))))
                         : null,
                     image: imageUrl,
+                    // Social media fields
+                    tiktok: tiktokController.text,
+                    facebook: facebookController.text,
+                    instagram: instagramController.text,
+                    telegram: telegramController.text,
+                    // Geolocation fields
+                    latitude: latitude,
+                    longitude: longitude,
                   ));
                 } else if (id != null) {
                   updateBusiness(
@@ -718,6 +998,14 @@ class _LocalBusinessesAdminScreenState
                                             )))))
                             : null,
                         image: imageUrl,
+                        // Social media fields
+                        tiktok: tiktokController.text,
+                        facebook: facebookController.text,
+                        instagram: instagramController.text,
+                        telegram: telegramController.text,
+                        // Geolocation fields
+                        latitude: latitude,
+                        longitude: longitude,
                       ));
                 }
                 Navigator.pop(context);
@@ -879,6 +1167,38 @@ class _LocalBusinessesAdminScreenState
                     ),
                     const Spacer(),
                     ElevatedButton.icon(
+                      icon: const Icon(Icons.file_upload, size: 18),
+                      label: const Text('Import CSV'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: white,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 18, vertical: 12),
+                        textStyle: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.bold),
+                      ),
+                      onPressed: _importFromCSV,
+                    ),
+                    const SizedBox(width: 10),
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.file_download, size: 18),
+                      label: const Text('Export CSV'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: white,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 18, vertical: 12),
+                        textStyle: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.bold),
+                      ),
+                      onPressed: _exportToCSV,
+                    ),
+                    const SizedBox(width: 10),
+                    ElevatedButton.icon(
                       icon: const Icon(Icons.add, size: 18),
                       label: const Text('Add Business'),
                       style: ElevatedButton.styleFrom(
@@ -952,25 +1272,48 @@ class _LocalBusinessesAdminScreenState
                   ),
                 ),
                 const SizedBox(height: 24),
-                filteredBusinesses.isEmpty
-                    ? Center(
-                        child: TextWidget(
-                          text: 'No businesses found.',
-                          fontSize: 18,
-                          color: grey,
-                          fontFamily: 'Regular',
-                        ),
-                      )
-                    : ListView.builder(
-                        shrinkWrap: true,
-                        physics: NeverScrollableScrollPhysics(),
-                        itemCount: filteredBusinesses.length,
-                        itemBuilder: (context, index) {
-                          final business = filteredBusinesses[index];
-                          return _buildBusinessCard(
-                              business, businessIds[index]);
-                        },
+                // Toggle between list and map view
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _isMapView = !_isMapView;
+                        });
+                      },
+                      icon: Icon(_isMapView ? Icons.list : Icons.map),
+                      label: Text(_isMapView ? 'List View' : 'Map View'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primary,
+                        foregroundColor: white,
                       ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Display either list or map view
+                _isMapView
+                    ? _buildMapView()
+                    : filteredBusinesses.isEmpty
+                        ? Center(
+                            child: TextWidget(
+                              text: 'No businesses found.',
+                              fontSize: 18,
+                              color: grey,
+                              fontFamily: 'Regular',
+                            ),
+                          )
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            physics: NeverScrollableScrollPhysics(),
+                            itemCount: filteredBusinesses.length,
+                            itemBuilder: (context, index) {
+                              final business = filteredBusinesses[index];
+                              return _buildBusinessCard(
+                                  business, businessIds[index]);
+                            },
+                          ),
               ],
             ),
           ),
@@ -978,6 +1321,360 @@ class _LocalBusinessesAdminScreenState
         ],
       ),
     );
+  }
+
+  // Build map view to display businesses
+  Widget _buildMapView() {
+    final businessesWithLocation = filteredBusinesses
+        .where((business) =>
+            business.latitude != null && business.longitude != null)
+        .toList();
+
+    if (businessesWithLocation.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.map_outlined, size: 64, color: grey),
+            const SizedBox(height: 16),
+            TextWidget(
+              text: 'No businesses with location data found.',
+              fontSize: 18,
+              color: grey,
+              fontFamily: 'Regular',
+            ),
+            const SizedBox(height: 8),
+            TextWidget(
+              text:
+                  'Add businesses with latitude and longitude to see them on the map.',
+              fontSize: 14,
+              color: grey,
+              fontFamily: 'Regular',
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Calculate center point for the map
+    double avgLat = 0, avgLon = 0;
+    for (var business in businessesWithLocation) {
+      avgLat += business.latitude!;
+      avgLon += business.longitude!;
+    }
+    avgLat /= businessesWithLocation.length;
+    avgLon /= businessesWithLocation.length;
+
+    return Container(
+      height: 500,
+      decoration: BoxDecoration(
+        border: Border.all(color: primary),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: FlutterMap(
+          options: MapOptions(
+            initialCenter: LatLng(avgLat, avgLon),
+            initialZoom: 12.0,
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'autour_web',
+            ),
+            MarkerLayer(
+              markers: businessesWithLocation.map((business) {
+                return Marker(
+                  point: LatLng(business.latitude!, business.longitude!),
+                  width: 80,
+                  height: 80,
+                  child: GestureDetector(
+                    onTap: () {
+                      // Show business details when marker is tapped
+                      final index = filteredBusinesses.indexOf(business);
+                      if (index != -1) {
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: TextWidget(
+                              text: business.name,
+                              fontSize: 20,
+                              color: primary,
+                              fontFamily: 'Bold',
+                            ),
+                            content: SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  TextWidget(
+                                    text:
+                                        '${business.category} - ${business.location}',
+                                    fontSize: 14,
+                                    color: grey,
+                                    fontFamily: 'Regular',
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextWidget(
+                                    text: business.description,
+                                    fontSize: 13,
+                                    color: black,
+                                    fontFamily: 'Regular',
+                                  ),
+                                  if (business.phone != null &&
+                                      business.phone!.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8),
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.phone,
+                                              size: 16, color: Colors.grey),
+                                          const SizedBox(width: 4),
+                                          TextWidget(
+                                            text: business.phone!,
+                                            fontSize: 12,
+                                            color: grey,
+                                            fontFamily: 'Regular',
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: TextWidget(
+                                  text: 'Close',
+                                  fontSize: 14,
+                                  color: grey,
+                                  fontFamily: 'Regular',
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                    },
+                    child: Icon(
+                      Icons.location_pin,
+                      color: _getCategoryColor(business.category),
+                      size: 40,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Get color based on business category for map markers
+  Color _getCategoryColor(String category) {
+    switch (category) {
+      case 'Accommodations':
+        return Colors.blue;
+      case 'Restaurants':
+        return Colors.red;
+      case 'Markets':
+        return Colors.green;
+      case 'Transportation':
+        return Colors.orange;
+      case 'Services':
+        return Colors.purple;
+      case 'Tours':
+        return Colors.teal;
+      default:
+        return primary;
+    }
+  }
+
+  // CSV Import functionality
+  void _importFromCSV() {
+    // Create an input element for file selection
+    final html.FileUploadInputElement uploadInput =
+        html.FileUploadInputElement()
+          ..accept = '.csv'
+          ..multiple = false;
+
+    // Add a change listener to handle file selection
+    uploadInput.onChange.listen((e) async {
+      if (uploadInput.files!.isNotEmpty) {
+        final file = uploadInput.files![0];
+
+        // Read the file as text
+        final reader = html.FileReader();
+        reader.readAsText(file);
+
+        reader.onLoadEnd.listen((e) async {
+          if (reader.result != null) {
+            try {
+              final csvContent = reader.result as String;
+              final lines = csvContent.split('\n');
+
+              if (lines.length < 2) {
+                throw Exception('CSV file is empty or invalid');
+              }
+
+              // Parse header
+              final headers = lines[0].split(',').map((h) => h.trim()).toList();
+
+              int importedCount = 0;
+
+              // Process each line (skip header)
+              for (int i = 1; i < lines.length; i++) {
+                if (lines[i].trim().isEmpty) continue;
+
+                final values =
+                    lines[i].split(',').map((v) => v.trim()).toList();
+
+                if (values.length != headers.length) {
+                  print('Skipping line $i: column count mismatch');
+                  continue;
+                }
+
+                // Create a map of header to value
+                final Map<String, String> row = {};
+                for (int j = 0; j < headers.length; j++) {
+                  row[headers[j]] = values[j];
+                }
+
+                // Create business object from CSV row
+                final business = Business(
+                  name: row['name'] ?? '',
+                  category: row['category'] ?? 'Services',
+                  location: row['location'] ?? '',
+                  description: row['description'] ?? '',
+                  phone: row['phone'],
+                  email: row['email'],
+                  hours: row['hours'],
+                  image: row['image'],
+                  // Social media
+                  tiktok: row['tiktok'],
+                  facebook: row['facebook'],
+                  instagram: row['instagram'],
+                  telegram: row['telegram'],
+                  // Geolocation
+                  latitude:
+                      row['latitude'] != null && row['latitude']!.isNotEmpty
+                          ? double.tryParse(row['latitude']!)
+                          : null,
+                  longitude:
+                      row['longitude'] != null && row['longitude']!.isNotEmpty
+                          ? double.tryParse(row['longitude']!)
+                          : null,
+                );
+
+                // Add to Firestore
+                await addBusiness(business);
+                importedCount++;
+              }
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content:
+                      Text('Successfully imported $importedCount businesses'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            } catch (e) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Error importing CSV: $e'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
+        });
+      }
+    });
+
+    // Trigger the file selection dialog
+    uploadInput.click();
+  }
+
+  // CSV Export functionality
+  void _exportToCSV() {
+    try {
+      // Create CSV header
+      final headers = [
+        'name',
+        'category',
+        'location',
+        'description',
+        'phone',
+        'email',
+        'hours',
+        'image',
+        'tiktok',
+        'facebook',
+        'instagram',
+        'telegram',
+        'latitude',
+        'longitude'
+      ];
+
+      // Create CSV rows
+      final rows = <List<String>>[];
+
+      for (final business in businesses) {
+        rows.add([
+          business.name,
+          business.category,
+          business.location,
+          business.description,
+          business.phone ?? '',
+          business.email ?? '',
+          business.hours ?? '',
+          business.image ?? '',
+          business.tiktok ?? '',
+          business.facebook ?? '',
+          business.instagram ?? '',
+          business.telegram ?? '',
+          business.latitude?.toString() ?? '',
+          business.longitude?.toString() ?? '',
+        ]);
+      }
+
+      // Generate CSV content
+      final csvRows = [headers.join(',')];
+      for (final row in rows) {
+        csvRows.add(row.map((field) => '"$field"').join(','));
+      }
+
+      final csvContent = csvRows.join('\n');
+
+      // Create download link
+      final blob = html.Blob([csvContent], 'text/csv');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.document.createElement('a') as html.AnchorElement
+        ..href = url
+        ..style.display = 'none'
+        ..download = 'businesses_${DateTime.now().millisecondsSinceEpoch}.csv';
+
+      html.document.body!.children.add(anchor);
+      anchor.click();
+      html.document.body!.children.remove(anchor);
+      html.Url.revokeObjectUrl(url);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Exported ${businesses.length} businesses to CSV'),
+          backgroundColor: Colors.blue,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error exporting CSV: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Widget _buildBusinessCard(Business business, String id) {
@@ -1100,6 +1797,50 @@ class _LocalBusinessesAdminScreenState
                     ],
                   ),
                 ),
+              // Social Media Links
+              if ((business.tiktok != null && business.tiktok!.isNotEmpty) ||
+                  (business.facebook != null &&
+                      business.facebook!.isNotEmpty) ||
+                  (business.instagram != null &&
+                      business.instagram!.isNotEmpty) ||
+                  (business.telegram != null && business.telegram!.isNotEmpty))
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextWidget(
+                        text: 'Social Media:',
+                        fontSize: 12,
+                        color: primary,
+                        fontFamily: 'Bold',
+                      ),
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          if (business.tiktok != null &&
+                              business.tiktok!.isNotEmpty)
+                            _buildSocialMediaButton(
+                                Icons.music_note, 'TikTok', business.tiktok!),
+                          if (business.facebook != null &&
+                              business.facebook!.isNotEmpty)
+                            _buildSocialMediaButton(
+                                Icons.facebook, 'Facebook', business.facebook!),
+                          if (business.instagram != null &&
+                              business.instagram!.isNotEmpty)
+                            _buildSocialMediaButton(Icons.camera_alt,
+                                'Instagram', business.instagram!),
+                          if (business.telegram != null &&
+                              business.telegram!.isNotEmpty)
+                            _buildSocialMediaButton(
+                                Icons.send, 'Telegram', business.telegram!),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               if (business.category == 'Accommodations' &&
                   business.roomsAvailable != null &&
                   business.totalRooms != null)
@@ -1162,9 +1903,50 @@ class _LocalBusinessesAdminScreenState
                     fontFamily: 'Regular',
                   ),
                 ),
+              // Location coordinates
+              if (business.latitude != null && business.longitude != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.location_on,
+                          size: 16, color: Colors.red),
+                      const SizedBox(width: 4),
+                      TextWidget(
+                        text: 'Lat: ${business.latitude!.toStringAsFixed(4)}, '
+                            'Lon: ${business.longitude!.toStringAsFixed(4)}',
+                        fontSize: 12,
+                        color: grey,
+                        fontFamily: 'Regular',
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // Helper method to build social media buttons
+  Widget _buildSocialMediaButton(IconData icon, String name, String url) {
+    return ElevatedButton.icon(
+      onPressed: () {
+        // In a real app, you would open the URL
+        // For now, we'll just show a snackbar
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Opening $name: $url')),
+        );
+      },
+      icon: Icon(icon, size: 16),
+      label: Text(name, style: TextStyle(fontSize: 12)),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: primary.withOpacity(0.1),
+        foregroundColor: primary,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
   }
