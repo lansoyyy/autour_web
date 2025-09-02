@@ -9,9 +9,122 @@ import 'package:autour_web/screens/community_engagement_admin_screen.dart';
 import 'package:autour_web/screens/health_surveillance_admin_screen.dart';
 import 'package:autour_web/screens/common_dialects_admin_screen.dart';
 import 'package:autour_web/widgets/analytics_graphs.dart';
+// Added imports for PDF generation
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:universal_html/html.dart' as html;
+import 'dart:typed_data';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
+
+  // Function to generate and download PDF with user data
+  Future<void> _downloadUsersPdf(BuildContext context) async {
+    try {
+      // Fetch users data from Firestore
+      final usersSnapshot =
+          await FirebaseFirestore.instance.collection('users').get();
+
+      final users = usersSnapshot.docs;
+
+      // Create PDF document
+      final pdf = pw.Document();
+
+      // Add page with user data
+      pdf.addPage(
+        pw.Page(
+          build: (pw.Context context) {
+            return pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  'AuTour Users Report',
+                  style: pw.TextStyle(
+                    fontSize: 24,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 20),
+                pw.Text(
+                  'Generated on: ${DateTime.now().toString()}',
+                  style: pw.TextStyle(
+                    fontSize: 14,
+                    color: PdfColors.grey,
+                  ),
+                ),
+                pw.SizedBox(height: 20),
+                pw.Text(
+                  'Total Users: ${users.length}',
+                  style: pw.TextStyle(
+                    fontSize: 18,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 20),
+                // Add user data table
+                pw.Table.fromTextArray(
+                  headers: [
+                    'Name',
+                    'Email',
+                    'Phone',
+                    'Nationality',
+                  ],
+                  data: users.map((user) {
+                    final data = user.data();
+                    return [
+                      data['fullName'] ?? 'N/A',
+                      data['email'] ?? 'N/A',
+                      data['mobile'] ?? 'N/A',
+                      data['nationality'] ?? 'N/A',
+                    ];
+                  }).toList(),
+                  headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                  headerDecoration: pw.BoxDecoration(color: PdfColors.grey300),
+                  cellAlignment: pw.Alignment.centerLeft,
+                  cellStyle: pw.TextStyle(fontSize: 10),
+                  border: null,
+                ),
+              ],
+            );
+          },
+        ),
+      );
+
+      // Generate PDF bytes
+      final bytes = await pdf.save();
+
+      // Create download link
+      final blob = html.Blob([bytes], 'application/pdf');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.document.createElement('a') as html.AnchorElement
+        ..href = url
+        ..style.display = 'none'
+        ..download =
+            'autour_users_${DateTime.now().millisecondsSinceEpoch}.pdf';
+
+      html.document.body!.children.add(anchor);
+      anchor.click();
+      html.document.body!.children.remove(anchor);
+      html.Url.revokeObjectUrl(url);
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Users PDF downloaded successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      // Show error message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error generating PDF: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +141,14 @@ class HomeScreen extends StatelessWidget {
           color: white,
           fontFamily: 'Bold',
         ),
+        // Add PDF download button to app bar
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf, color: Colors.white),
+            onPressed: () => _downloadUsersPdf(context),
+            tooltip: 'Download Users PDF',
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(40),
@@ -56,6 +177,18 @@ class HomeScreen extends StatelessWidget {
                     color: black,
                     fontFamily: 'Regular',
                     align: TextAlign.left,
+                  ),
+                  // Add PDF download button in the welcome section
+                  const SizedBox(height: 20),
+                  ButtonWidget(
+                    label: 'Download Users PDF Report',
+                    onPressed: () => _downloadUsersPdf(context),
+                    color: primary,
+                    textColor: white,
+                    width: 250,
+                    height: 45,
+                    fontSize: 16,
+                    radius: 10,
                   ),
                 ],
               ),
