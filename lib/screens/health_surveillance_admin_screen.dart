@@ -40,6 +40,73 @@ class _HealthSurveillanceAdminScreenState
     }).toList();
   }
 
+  // Evaluate health declaration and generate alert
+  Map<String, dynamic> evaluateHealthDeclaration(
+      Map<String, dynamic> declaration) {
+    final temperature = declaration['temperature']?.toString() ?? '';
+    final symptoms = declaration['symptoms']?.toString() ?? '';
+    final exposure = declaration['exposure']?.toString() ?? '';
+    final vaccination = declaration['vaccination']?.toString() ?? '';
+
+    String alertLevel = 'Low';
+    String alertMessage = 'No immediate health concerns identified.';
+    String recommendation = 'Continue monitoring general health.';
+    Color alertColor = Colors.green;
+
+    // Check for high temperature
+    double tempValue = 0;
+    if (temperature.isNotEmpty && temperature != '-') {
+      try {
+        tempValue =
+            double.parse(temperature.replaceAll(RegExp(r'[^0-9.]'), ''));
+      } catch (e) {
+        // Handle parsing error
+      }
+    }
+
+    // High-risk conditions
+    bool hasHighTemp = tempValue >= 38.0;
+    bool hasSevereSymptoms = symptoms.toLowerCase().contains('fever') ||
+        symptoms.toLowerCase().contains('cough') ||
+        symptoms.toLowerCase().contains('difficulty breathing') ||
+        symptoms.toLowerCase().contains('shortness of breath');
+    bool hasExposure = exposure.toLowerCase().contains('yes') ||
+        exposure.toLowerCase().contains('positive') ||
+        exposure.toLowerCase().contains('contact');
+
+    // Determine alert level
+    if (hasHighTemp && hasSevereSymptoms) {
+      alertLevel = 'Critical';
+      alertMessage =
+          'High temperature with severe symptoms detected. Immediate medical attention recommended.';
+      recommendation =
+          '1. Seek immediate medical attention\n2. Isolate the individual\n3. Contact health authorities\n4. Monitor vital signs continuously';
+      alertColor = Colors.red;
+    } else if (hasHighTemp || hasSevereSymptoms || hasExposure) {
+      alertLevel = 'High';
+      alertMessage =
+          'Potential health risk identified. Medical consultation recommended.';
+      recommendation =
+          '1. Consult a healthcare provider\n2. Monitor symptoms closely\n3. Maintain isolation if exposure is suspected\n4. Stay hydrated and rest';
+      alertColor = Colors.orange;
+    } else if (tempValue >= 37.5 ||
+        symptoms.toLowerCase().contains('mild') ||
+        vaccination.toLowerCase().contains('not')) {
+      alertLevel = 'Medium';
+      alertMessage = 'Moderate health concern. Monitoring recommended.';
+      recommendation =
+          '1. Monitor symptoms daily\n2. Maintain good hygiene practices\n3. Consider vaccination if not up to date\n4. Rest and stay hydrated';
+      alertColor = Colors.yellow;
+    }
+
+    return {
+      'alertLevel': alertLevel,
+      'alertMessage': alertMessage,
+      'recommendation': recommendation,
+      'alertColor': alertColor,
+    };
+  }
+
   @override
   void initState() {
     super.initState();
@@ -192,10 +259,29 @@ class _HealthSurveillanceAdminScreenState
                   ],
                 ),
                 const SizedBox(height: 24),
+                // Summary cards for health statistics
+                SizedBox(
+                  height: 100,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      _buildSummaryCard('Total Declarations',
+                          filteredDeclarations.length.toString(), Colors.blue),
+                      _buildSummaryCard('Critical Alerts',
+                          _getAlertCount('Critical'), Colors.red),
+                      _buildSummaryCard(
+                          'High Alerts', _getAlertCount('High'), Colors.orange),
+                      _buildSummaryCard('Medium Alerts',
+                          _getAlertCount('Medium'), Colors.yellow),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: DataTable(
                     columns: const [
+                      DataColumn(label: Text('Alert')),
                       DataColumn(label: Text('Name')),
                       DataColumn(label: Text('Date')),
                       DataColumn(label: Text('Temp (°C)')),
@@ -205,7 +291,43 @@ class _HealthSurveillanceAdminScreenState
                       DataColumn(label: Text('Actions')),
                     ],
                     rows: filteredDeclarations.map((d) {
+                      final evaluation = evaluateHealthDeclaration(d);
                       return DataRow(cells: [
+                        DataCell(
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: evaluation['alertColor'].withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  evaluation['alertLevel'] == 'Critical'
+                                      ? Icons.error
+                                      : evaluation['alertLevel'] == 'High'
+                                          ? Icons.warning
+                                          : evaluation['alertLevel'] == 'Medium'
+                                              ? Icons.info
+                                              : Icons.check_circle,
+                                  color: evaluation['alertColor'],
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  evaluation['alertLevel'],
+                                  style: TextStyle(
+                                    color: evaluation['alertColor'],
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                         DataCell(Text(d['name'])),
                         DataCell(Text(d['date'])),
                         DataCell(Text(d['temperature'])),
@@ -237,6 +359,8 @@ class _HealthSurveillanceAdminScreenState
   }
 
   void _showDeclarationDetails(Map<String, dynamic> d) {
+    final evaluation = evaluateHealthDeclaration(d);
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -258,6 +382,62 @@ class _HealthSurveillanceAdminScreenState
               _buildDetailRow('Symptoms', d['symptoms']),
               _buildDetailRow('Exposure', d['exposure']),
               _buildDetailRow('Vaccination', d['vaccination']),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: evaluation['alertColor'].withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: evaluation['alertColor']),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          evaluation['alertLevel'] == 'Critical'
+                              ? Icons.error
+                              : evaluation['alertLevel'] == 'High'
+                                  ? Icons.warning
+                                  : evaluation['alertLevel'] == 'Medium'
+                                      ? Icons.info
+                                      : Icons.check_circle,
+                          color: evaluation['alertColor'],
+                        ),
+                        const SizedBox(width: 8),
+                        TextWidget(
+                          text: '${evaluation['alertLevel']} Risk Alert',
+                          fontSize: 16,
+                          color: evaluation['alertColor'],
+                          fontFamily: 'Bold',
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    TextWidget(
+                      text: evaluation['alertMessage'],
+                      fontSize: 14,
+                      color: black,
+                      fontFamily: 'Regular',
+                    ),
+                    const SizedBox(height: 8),
+                    TextWidget(
+                      text: 'Recommended Actions:',
+                      fontSize: 14,
+                      color: black,
+                      fontFamily: 'Bold',
+                    ),
+                    const SizedBox(height: 4),
+                    TextWidget(
+                      text: evaluation['recommendation'],
+                      fontSize: 12,
+                      color: grey,
+                      fontFamily: 'Regular',
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -300,5 +480,47 @@ class _HealthSurveillanceAdminScreenState
         ],
       ),
     );
+  }
+
+  Widget _buildSummaryCard(String title, String value, Color color) {
+    return Container(
+      width: 200,
+      margin: const EdgeInsets.only(right: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          TextWidget(
+            text: title,
+            fontSize: 14,
+            color: grey,
+            fontFamily: 'Regular',
+          ),
+          const SizedBox(height: 8),
+          TextWidget(
+            text: value,
+            fontSize: 24,
+            color: color,
+            fontFamily: 'Bold',
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getAlertCount(String alertLevel) {
+    int count = 0;
+    for (var declaration in filteredDeclarations) {
+      final evaluation = evaluateHealthDeclaration(declaration);
+      if (evaluation['alertLevel'] == alertLevel) {
+        count++;
+      }
+    }
+    return count.toString();
   }
 }

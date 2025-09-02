@@ -300,7 +300,7 @@ class HomeScreen extends StatelessWidget {
                               }),
                           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                               stream: FirebaseFirestore.instance
-                                  .collection('health_declarations')
+                                  .collectionGroup('health_declarations')
                                   .snapshots(),
                               builder: (context, snapshot) {
                                 if (snapshot.connectionState ==

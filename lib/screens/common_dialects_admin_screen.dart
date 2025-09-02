@@ -16,10 +16,15 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
   final TextEditingController searchController = TextEditingController();
   String searchQuery = '';
   String selectedTown = 'All';
+  String? selectedTouristSpot;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   late final CollectionReference dialectsRef =
       _db.collection('common_dialects');
   List<String> _dialectIds = [];
+
+  // Sorting options
+  String sortBy = 'createdAt';
+  bool sortAscending = false;
 
   final List<String> towns = [
     'All',
@@ -27,8 +32,28 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
     'Dingalan',
     'Maria Aurora',
     'San Luis',
+    'Dipaculao',
+    'Dinalungan',
+    'Casiguran',
+    'Dilasag',
   ];
 
+  // Map of towns to their notable tourist spots for reference
+  final Map<String, List<String>> townTouristSpots = {
+    'Baler': [
+      'Sabang Beach',
+      'Dicasalarin Cove',
+      'Ditumabo Falls',
+      'Baler Museum'
+    ],
+    'Dingalan': ['Dingalan Bay', 'White Beach', 'Lamao Falls'],
+    'Maria Aurora': ['Millenium Tree', 'Balete Park'],
+    'San Luis': ['Cunayan Falls', 'Dinadiawan Beach'],
+    'Dipaculao': ['Ampere Beach', 'Dibutunan Beach', 'Borlongan Falls'],
+    'Dinalungan': ['Dibut Bay', 'Hidden Beach'],
+    'Casiguran': ['Casapsapan Beach', 'Dalugan Bay'],
+    'Dilasag': ['Dilasag Beach', 'Dilasag Falls'],
+  };
   List<Map<String, dynamic>> dialectEntries = [];
 
   @override
@@ -51,6 +76,8 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
             'usage': (data['usage'] ?? '').toString(),
             'example': (data['example'] ?? '').toString(),
             'verified': (data['verified'] ?? false) == true,
+            'touristSpot': (data['touristSpot'] ?? '').toString(),
+            'createdAt': data['createdAt'],
           };
         }).toList();
         _dialectIds = s.docs.map((d) => d.id).toList();
@@ -73,9 +100,14 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
   }
 
   List<Map<String, dynamic>> get filteredDialects {
-    return dialectEntries.where((entry) {
+    var filtered = dialectEntries.where((entry) {
       final matchesTown =
           selectedTown == 'All' || entry['town'] == selectedTown;
+
+      final matchesTouristSpot = selectedTouristSpot == null ||
+          entry['touristSpot'].toString().toLowerCase() ==
+              selectedTouristSpot!.toLowerCase();
+
       final matchesSearch = entry['phrase']
               .toString()
               .toLowerCase()
@@ -95,9 +127,34 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
           entry['example']
               .toString()
               .toLowerCase()
+              .contains(searchQuery.toLowerCase()) ||
+          entry['touristSpot']
+              .toString()
+              .toLowerCase()
               .contains(searchQuery.toLowerCase());
-      return matchesTown && matchesSearch;
+
+      return matchesTown && matchesSearch && matchesTouristSpot;
     }).toList();
+
+    // Sort the filtered list
+    filtered.sort((a, b) {
+      if (sortBy == 'createdAt') {
+        final aDate = a['createdAt'] as Timestamp?;
+        final bDate = b['createdAt'] as Timestamp?;
+        if (aDate == null || bDate == null) return 0;
+        return sortAscending ? aDate.compareTo(bDate) : bDate.compareTo(aDate);
+      } else if (sortBy == 'touristSpot') {
+        final aSpot = a['touristSpot']?.toString() ?? '';
+        final bSpot = b['touristSpot']?.toString() ?? '';
+        return sortAscending ? aSpot.compareTo(bSpot) : bSpot.compareTo(aSpot);
+      } else {
+        return sortAscending
+            ? a[sortBy].toString().compareTo(b[sortBy].toString())
+            : b[sortBy].toString().compareTo(a[sortBy].toString());
+      }
+    });
+
+    return filtered;
   }
 
   @override
@@ -119,95 +176,150 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
     final usageController = TextEditingController(text: entry?['usage'] ?? '');
     final exampleController =
         TextEditingController(text: entry?['example'] ?? '');
+    final touristSpotController =
+        TextEditingController(text: entry?['touristSpot'] ?? '');
     bool verified = entry?['verified'] ?? false;
+
+    // Get list of tourist spots for the selected town
+    List<String> availableTouristSpots =
+        town == 'All' ? [] : townTouristSpots[town] ?? [];
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: TextWidget(
-          text: entry == null ? 'Add Dialect Entry' : 'Edit Dialect Entry',
-          fontSize: 20,
-          color: primary,
-          fontFamily: 'Bold',
-        ),
-        content: SizedBox(
-          width: 400,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildTextField('Phrase', phraseController),
-                _buildTextField('Meaning', meaningController),
-                _buildTextField('Pronunciation', pronunciationController),
-                DropdownButtonFormField<String>(
-                  value: town,
-                  items: towns
-                      .where((t) => t != 'All')
-                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
-                      .toList(),
-                  onChanged: (val) => town = val!,
-                  decoration: const InputDecoration(labelText: 'Town'),
-                ),
-                _buildTextField('Language', languageController),
-                _buildTextField('Usage Context', usageController),
-                _buildTextField('Example', exampleController),
-                Row(
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: TextWidget(
+              text: entry == null ? 'Add Dialect Entry' : 'Edit Dialect Entry',
+              fontSize: 20,
+              color: primary,
+              fontFamily: 'Bold',
+            ),
+            content: SizedBox(
+              width: 400,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Checkbox(
-                      value: verified,
-                      onChanged: (val) =>
-                          setState(() => verified = val ?? false),
+                    _buildTextField('Phrase', phraseController),
+                    _buildTextField('Meaning', meaningController),
+                    _buildTextField('Pronunciation', pronunciationController),
+                    DropdownButtonFormField<String>(
+                      value: town,
+                      items: towns
+                          .where((t) => t != 'All')
+                          .map(
+                              (t) => DropdownMenuItem(value: t, child: Text(t)))
+                          .toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            town = val;
+                            // Update available tourist spots
+                            availableTouristSpots =
+                                townTouristSpots[town] ?? [];
+                            // Clear tourist spot if town changes
+                            touristSpotController.text = '';
+                          });
+                        }
+                      },
+                      decoration: const InputDecoration(labelText: 'Town'),
                     ),
-                    const SizedBox(width: 4),
-                    const Text('Verified by Community'),
+                    _buildTextField('Language', languageController),
+                    _buildTextField('Usage Context', usageController),
+                    _buildTextField('Example', exampleController),
+
+                    // Tourist Spot dropdown or text field
+                    if (availableTouristSpots.isNotEmpty)
+                      DropdownButtonFormField<String>(
+                        value: touristSpotController.text.isEmpty
+                            ? null
+                            : touristSpotController.text,
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: '',
+                            child: Text('Select a tourist spot'),
+                          ),
+                          ...availableTouristSpots
+                              .map((spot) => DropdownMenuItem<String>(
+                                    value: spot,
+                                    child: Text(spot),
+                                  ))
+                              .toList(),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) {
+                            touristSpotController.text = val;
+                          }
+                        },
+                        decoration: const InputDecoration(
+                          labelText: 'Tourist Spot',
+                          hintText: 'Select or enter a tourist spot',
+                        ),
+                      )
+                    else
+                      _buildTextField('Tourist Spot', touristSpotController),
+
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: verified,
+                          onChanged: (val) =>
+                              setState(() => verified = val ?? false),
+                        ),
+                        const SizedBox(width: 4),
+                        const Text('Verified by Community'),
+                      ],
+                    ),
                   ],
                 ),
-              ],
+              ),
             ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: TextWidget(
-                text: 'Cancel',
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: TextWidget(
+                    text: 'Cancel',
+                    fontSize: 14,
+                    color: grey,
+                    fontFamily: 'Regular'),
+              ),
+              ButtonWidget(
+                label: entry == null ? 'Add' : 'Save',
+                onPressed: () async {
+                  final newEntry = {
+                    'phrase': phraseController.text,
+                    'meaning': meaningController.text,
+                    'pronunciation': pronunciationController.text,
+                    'town': town,
+                    'language': languageController.text,
+                    'usage': usageController.text,
+                    'example': exampleController.text,
+                    'touristSpot': touristSpotController.text,
+                    'verified': verified,
+                  };
+                  try {
+                    if (entry == null) {
+                      await _addDialect(newEntry);
+                    } else {
+                      await _updateDialect(index!, newEntry);
+                    }
+                    Navigator.pop(context);
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error saving dialect: $e')));
+                  }
+                },
+                color: primary,
+                textColor: white,
+                width: 100,
+                height: 40,
                 fontSize: 14,
-                color: grey,
-                fontFamily: 'Regular'),
-          ),
-          ButtonWidget(
-            label: entry == null ? 'Add' : 'Save',
-            onPressed: () async {
-              final newEntry = {
-                'phrase': phraseController.text,
-                'meaning': meaningController.text,
-                'pronunciation': pronunciationController.text,
-                'town': town,
-                'language': languageController.text,
-                'usage': usageController.text,
-                'example': exampleController.text,
-                'verified': verified,
-              };
-              try {
-                if (entry == null) {
-                  await _addDialect(newEntry);
-                } else {
-                  await _updateDialect(index!, newEntry);
-                }
-                Navigator.pop(context);
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error saving dialect: $e')));
-              }
-            },
-            color: primary,
-            textColor: white,
-            width: 100,
-            height: 40,
-            fontSize: 14,
-            radius: 8,
-          ),
-        ],
+                radius: 8,
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -335,6 +447,14 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
                 color: grey,
                 fontFamily: 'Regular',
               ),
+              if (entry['touristSpot'] != null &&
+                  entry['touristSpot'].toString().isNotEmpty)
+                TextWidget(
+                  text: 'Tourist Spot: ${entry['touristSpot']}',
+                  fontSize: 13,
+                  color: primary,
+                  fontFamily: 'Medium',
+                ),
               TextWidget(
                 text: 'Language: ${entry['language']}',
                 fontSize: 13,
@@ -441,8 +561,49 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
                       align: TextAlign.left,
                     ),
                     const Spacer(),
+                    DropdownButton<String>(
+                      value: sortBy,
+                      items: [
+                        DropdownMenuItem(
+                          value: 'createdAt',
+                          child: TextWidget(
+                            text: 'Sort by Date',
+                            fontSize: 14,
+                            color: black,
+                            fontFamily: 'Regular',
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'town',
+                          child: TextWidget(
+                            text: 'Sort by Town',
+                            fontSize: 14,
+                            color: black,
+                            fontFamily: 'Regular',
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'touristSpot',
+                          child: TextWidget(
+                            text: 'Sort by Tourist Spot',
+                            fontSize: 14,
+                            color: black,
+                            fontFamily: 'Regular',
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() {
+                            sortBy = value;
+                            sortAscending = !sortAscending;
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(width: 16),
                     SizedBox(
-                      width: isWide ? 350 : 220,
+                      width: isWide ? 250 : 150,
                       child: TextField(
                         controller: searchController,
                         onChanged: (val) => setState(() => searchQuery = val),
@@ -486,6 +647,8 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
                           onTap: () {
                             setState(() {
                               selectedTown = town;
+                              selectedTouristSpot =
+                                  null; // Reset tourist spot filter when town changes
                             });
                           },
                           child: Container(
@@ -510,6 +673,35 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
                     },
                   ),
                 ),
+                const SizedBox(height: 18),
+                // Tourist spot filter dropdown
+                if (selectedTown != 'All' &&
+                    townTouristSpots[selectedTown] != null &&
+                    townTouristSpots[selectedTown]!.isNotEmpty)
+                  SizedBox(
+                    height: 40,
+                    child: DropdownButton<String>(
+                      value: selectedTouristSpot,
+                      hint: const Text('Filter by Tourist Spot'),
+                      items: [
+                        const DropdownMenuItem(
+                          value: null,
+                          child: Text('All Tourist Spots'),
+                        ),
+                        ...?townTouristSpots[selectedTown]?.map((spot) {
+                          return DropdownMenuItem(
+                            value: spot,
+                            child: Text(spot),
+                          );
+                        }).toList(),
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          selectedTouristSpot = value;
+                        });
+                      },
+                    ),
+                  ),
                 const SizedBox(height: 18),
                 Wrap(
                   spacing: 24,
