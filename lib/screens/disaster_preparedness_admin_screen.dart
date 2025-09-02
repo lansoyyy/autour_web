@@ -338,6 +338,8 @@ class _DisasterPreparednessAdminScreenState
     _fetchWeather();
     _fetchForecast();
     _fetchWaveConditions();
+    // Check for bad weather after refreshing
+    _checkBadWeatherAndAlert();
   }
 
   // Play high-pitched alert sound
@@ -349,6 +351,73 @@ class _DisasterPreparednessAdminScreenState
     } catch (e) {
       print('Error playing alert sound: $e');
     }
+  }
+
+  // Check if weather conditions are bad and play alert sound
+  void _checkBadWeatherAndAlert() {
+    try {
+      // Get current weather condition
+      final condition = weatherData['condition']?.toLowerCase() ?? '';
+
+      // Define bad weather conditions
+      final badWeatherConditions = [
+        'thunderstorm',
+        'rain',
+        'heavy rain',
+        'storm',
+        'severe',
+        'hurricane',
+        'tornado',
+        'blizzard',
+        'extreme'
+      ];
+
+      // Check if any bad weather condition is present
+      final isBadWeather = badWeatherConditions
+          .any((badCondition) => condition.contains(badCondition));
+
+      // Also check for high wind speeds
+      final windSpeedStr = weatherData['wind_speed'] ?? '';
+      final windSpeed = _extractNumberFromText(windSpeedStr);
+      final isHighWind =
+          windSpeed >= 50; // 50 km/h or more is considered high wind
+
+      // Play alert if bad weather is detected
+      if (isBadWeather || isHighWind) {
+        _playAlertSound();
+
+        // Show a snackbar notification as well
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: TextWidget(
+                text: '⚠️ Bad weather alert: $condition',
+                fontSize: 14,
+                color: white,
+              ),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error checking bad weather conditions: $e');
+    }
+  }
+
+  // Helper method to extract number from text (e.g., "15 km/h" -> 15)
+  double _extractNumberFromText(String text) {
+    try {
+      final regex = RegExp(r'(\d+\.?\d*)');
+      final match = regex.firstMatch(text);
+      if (match != null) {
+        return double.tryParse(match.group(1) ?? '0') ?? 0;
+      }
+    } catch (e) {
+      print('Error extracting number from text: $e');
+    }
+    return 0;
   }
 
   // Create a new emergency alert
@@ -1254,6 +1323,9 @@ class _DisasterPreparednessAdminScreenState
             setState(() {
               weatherData = updatedWeatherData;
             });
+
+            // Check for bad weather conditions after updating weather data
+            _checkBadWeatherAndAlert();
           } catch (e) {
             print('Error updating weather data: $e');
             setState(() {
@@ -1804,19 +1876,6 @@ class _DisasterPreparednessAdminScreenState
           color: white,
           fontFamily: 'Bold',
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications, color: white),
-            onPressed: () {
-              // Play alert sound for testing
-              _playAlertSound();
-            },
-          ),
-          // IconButton(
-          //   icon: const Icon(Icons.refresh, color: white),
-          //   onPressed: _refreshWeather,
-          // ),
-        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(40),
@@ -2943,29 +3002,6 @@ class _DisasterPreparednessAdminScreenState
                 fontSize: 16,
                 color: black,
                 fontFamily: 'Medium',
-              ),
-              const SizedBox(width: 8),
-              TextButton.icon(
-                icon: const Icon(Icons.edit_location, size: 18),
-                label: const Text('Choose area'),
-                onPressed: () {
-                  // In a real implementation, this would show a location picker
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                        content: Text('Location selection would open here')),
-                  );
-                },
-                style: TextButton.styleFrom(
-                  foregroundColor: primary,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                ),
-              ),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.more_vert),
-                onPressed: () {
-                  // Options menu
-                },
               ),
             ],
           ),
