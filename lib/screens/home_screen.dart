@@ -142,13 +142,6 @@ class HomeScreen extends StatelessWidget {
           fontFamily: 'Bold',
         ),
         // Add PDF download button to app bar
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.picture_as_pdf, color: Colors.white),
-            onPressed: () => _downloadUsersPdf(context),
-            tooltip: 'Download Users PDF',
-          ),
-        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(40),

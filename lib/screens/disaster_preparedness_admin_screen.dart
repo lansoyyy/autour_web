@@ -14,9 +14,9 @@ import 'package:latlong2/latlong.dart' as latlng;
 import 'dart:async';
 import 'package:universal_html/html.dart' as html;
 import 'dart:math';
+import 'package:geolocator/geolocator.dart';
 
 // Model for Emergency Alerts
-
 class EmergencyAlert {
   final String id;
   final String title;
@@ -271,7 +271,7 @@ class _DisasterPreparednessAdminScreenState
   html.AudioElement? _alertSound;
 
   // Map controllers
-  late final MapController _mapController;
+  MapController? _mapController;
 
   // Selected marker
   latlng.LatLng? _selectedLocation;
@@ -279,24 +279,34 @@ class _DisasterPreparednessAdminScreenState
   // Current location
   latlng.LatLng _currentLocation = latlng.LatLng(c.auroraLat, c.auroraLon);
 
+  // Location service status
+  bool _locationServiceEnabled = false;
+  bool _locationPermissionGranted = false;
+
   Map<String, String> weatherData = {
     'location': 'Baler, Aurora',
-    'temperature': '28°C',
-    'feels_like': '32°C',
-    'condition': 'Partly Cloudy',
-    'humidity': '75%',
-    'wind_speed': '15 km/h',
-    'visibility': '10 km',
-    'uv_index': 'High',
-    'sunrise': '5:45 AM',
-    'sunset': '6:15 PM',
-    'precipitation': '20%',
-    'pressure': '1013 hPa',
-    'wave_height': '1.2m',
-    'wave_period': '8.5s',
-    'wave_direction': 'NE',
-    'surf_quality': 'Good',
-    'timestamp': DateFormat('EEEE h:mm a').format(DateTime.now()),
+    'temperature': '--°C',
+    'feels_like': '--°C',
+    'condition': 'Loading...',
+    'humidity': '--%',
+    'wind_speed': '-- km/h',
+    'visibility': '-- km',
+    'uv_index': '--',
+    'sunrise': '--:--',
+    'sunset': '--:--',
+    'precipitation': '--',
+    'pressure': '-- hPa',
+    'wave_height': '--m',
+    'wave_period': '--s',
+    'wave_direction': '--',
+    'surf_quality': '--',
+    'tide_level': '--m',
+    'tide_timing': '--',
+    'swell_direction': '--',
+    'swell_size': '--m',
+    'water_temperature': '--°C',
+    'atmospheric_fronts': '--',
+    'timestamp': '--', // Will be updated when weather data is fetched
   };
 
   List<Map<String, dynamic>> aiSuggestions = [
@@ -335,7 +345,8 @@ class _DisasterPreparednessAdminScreenState
   ];
 
   void _refreshWeather() {
-    _fetchWeather();
+    // Get current location before refreshing weather
+    _getCurrentLocation();
     _fetchForecast();
     _fetchWaveConditions();
     // Check for bad weather after refreshing
@@ -382,16 +393,33 @@ class _DisasterPreparednessAdminScreenState
       final isHighWind =
           windSpeed >= 50; // 50 km/h or more is considered high wind
 
+      // Check for dangerous marine conditions
+      final waveHeightStr = weatherData['wave_height'] ?? '';
+      final waveHeight = _extractNumberFromText(waveHeightStr);
+      final isDangerousWaves =
+          waveHeight >= 3.0; // 3m or higher waves are dangerous
+
+      // Check for extreme tide conditions
+      final tideLevelStr = weatherData['tide_level'] ?? '';
+      final tideLevel = _extractNumberFromText(tideLevelStr);
+      final isExtremeTides =
+          tideLevel >= 2.5; // 2.5m or higher tides are extreme
+
       // Play alert if bad weather is detected
-      if (isBadWeather || isHighWind) {
+      if (isBadWeather || isHighWind || isDangerousWaves || isExtremeTides) {
         _playAlertSound();
 
         // Show a snackbar notification as well
         if (mounted) {
+          String alertMessage = '⚠️ Bad weather alert: $condition';
+          if (isHighWind) alertMessage += ' (High winds)';
+          if (isDangerousWaves) alertMessage += ' (Dangerous waves)';
+          if (isExtremeTides) alertMessage += ' (Extreme tides)';
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: TextWidget(
-                text: '⚠️ Bad weather alert: $condition',
+                text: alertMessage,
                 fontSize: 14,
                 color: white,
               ),
@@ -853,7 +881,8 @@ class _DisasterPreparednessAdminScreenState
             Widget mapWidget;
             try {
               mapWidget = FlutterMap(
-                mapController: _mapController,
+                mapController:
+                    _mapController, // This will be null if initialization failed, which is acceptable
                 options: MapOptions(
                   initialCenter: latlng.LatLng(c.auroraLat, c.auroraLon),
                   initialZoom: 11,
@@ -1021,9 +1050,10 @@ class _DisasterPreparednessAdminScreenState
       _mapController = MapController();
     } catch (e) {
       print('Error initializing map controller: $e');
+      _mapController = null; // Set to null if initialization fails
     }
 
-    // _fetchWeather();
+    _fetchWeather();
     _fetchForecast();
     _fetchWaveConditions();
     _loadData();
@@ -1034,6 +1064,9 @@ class _DisasterPreparednessAdminScreenState
     // Initialize alert sound
     _alertSound = html.AudioElement();
     _alertSound?.src = 'assets/sounds/alert.mp3';
+
+    // Initialize location services
+    _initializeLocationServices();
 
     // Add sample health centers if we don't have any
     _addSampleData();
@@ -1212,11 +1245,97 @@ class _DisasterPreparednessAdminScreenState
     }
   }
 
+  // Initialize location services
+  Future<void> _initializeLocationServices() async {
+    try {
+      // Check if location services are enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      setState(() {
+        _locationServiceEnabled = serviceEnabled;
+      });
+
+      if (!serviceEnabled) {
+        // Location services are not enabled, use default location
+        _useDefaultLocation();
+        return;
+      }
+
+      // Check location permissions
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          // Permissions denied, use default location
+          _useDefaultLocation();
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        // Permissions permanently denied, use default location
+        _useDefaultLocation();
+        return;
+      }
+
+      // Permissions granted
+      setState(() {
+        _locationPermissionGranted = true;
+      });
+
+      // Get current position
+      _getCurrentLocation();
+    } catch (e) {
+      print('Error initializing location services: $e');
+      _useDefaultLocation();
+    }
+  }
+
+  // Get current location
+  Future<void> _getCurrentLocation() async {
+    try {
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      setState(() {
+        _currentLocation = latlng.LatLng(position.latitude, position.longitude);
+      });
+
+      // Update location in weather data
+      _updateLocationInWeatherData();
+
+      // Fetch weather for new location
+      _fetchWeather();
+    } catch (e) {
+      print('Error getting current location: $e');
+      _useDefaultLocation();
+    }
+  }
+
+  // Use default location
+  void _useDefaultLocation() {
+    setState(() {
+      _currentLocation = latlng.LatLng(c.auroraLat, c.auroraLon);
+      weatherData['location'] = c.auroraLocationLabel;
+    });
+    _fetchWeather();
+  }
+
+  // Update location in weather data
+  void _updateLocationInWeatherData() {
+    // In a real implementation, you would reverse geocode the coordinates to get the location name
+    // For now, we'll just use the coordinates
+    setState(() {
+      weatherData['location'] =
+          '${_currentLocation.latitude.toStringAsFixed(4)}, ${_currentLocation.longitude.toStringAsFixed(4)}';
+    });
+  }
+
   @override
   void dispose() {
     // Dispose map controller safely
     try {
-      _mapController.dispose();
+      _mapController?.dispose();
     } catch (e) {
       print('Error disposing map controller: $e');
     }
@@ -1249,7 +1368,7 @@ class _DisasterPreparednessAdminScreenState
     });
 
     final uri = Uri.parse(
-        '${c.weatherApiEndpoint}?lat=${c.auroraLat}&lon=${c.auroraLon}&appid=${c.weatherApiKey}&units=metric');
+        '${c.weatherApiEndpoint}?lat=${_currentLocation.latitude}&lon=${_currentLocation.longitude}&appid=${c.weatherApiKey}&units=metric');
 
     try {
       final response = await http.get(uri);
@@ -1303,7 +1422,7 @@ class _DisasterPreparednessAdminScreenState
           try {
             // Create a new map with all data safely initialized
             final Map<String, String> updatedWeatherData = {
-              'location': c.auroraLocationLabel,
+              'location': weatherData['location'] ?? c.auroraLocationLabel,
               'temperature': '${temp.toStringAsFixed(1)}°C',
               'feels_like': '${feelsLike.toStringAsFixed(1)}°C',
               'condition': _capitalize(weatherDescription),
@@ -1312,11 +1431,30 @@ class _DisasterPreparednessAdminScreenState
               'visibility': visibilityKm > 0
                   ? '${visibilityKm.toStringAsFixed(1)} km'
                   : '—',
-              'uv_index': '—',
+              'uv_index': _fetchUVIndex(
+                  _currentLocation.latitude, _currentLocation.longitude),
               'sunrise': fmtUnix(sunrise),
               'sunset': fmtUnix(sunset),
               'precipitation': precipitation,
               'pressure': '$pressure hPa',
+              'wave_height': _fetchWaveData(_currentLocation.latitude,
+                  _currentLocation.longitude, 'height'),
+              'wave_period': _fetchWaveData(_currentLocation.latitude,
+                  _currentLocation.longitude, 'period'),
+              'wave_direction': _fetchWaveData(_currentLocation.latitude,
+                  _currentLocation.longitude, 'direction'),
+              'tide_level': _fetchTideData(_currentLocation.latitude,
+                  _currentLocation.longitude, 'level'),
+              'tide_timing': _fetchTideData(_currentLocation.latitude,
+                  _currentLocation.longitude, 'timing'),
+              'swell_direction': _fetchSwellData(_currentLocation.latitude,
+                  _currentLocation.longitude, 'direction'),
+              'swell_size': _fetchSwellData(_currentLocation.latitude,
+                  _currentLocation.longitude, 'size'),
+              'water_temperature': _fetchWaterTemperature(
+                  _currentLocation.latitude, _currentLocation.longitude),
+              'atmospheric_fronts': _fetchAtmosphericFronts(
+                  _currentLocation.latitude, _currentLocation.longitude),
               'timestamp': DateFormat('EEEE h:mm a').format(DateTime.now()),
             };
 
@@ -1336,9 +1474,9 @@ class _DisasterPreparednessAdminScreenState
           // Persist weather to Firestore for mobile coordination
           try {
             final Map<String, dynamic> payload = {
-              'region': c.auroraLocationLabel,
-              'lat': c.auroraLat,
-              'lon': c.auroraLon,
+              'region': weatherData['location'] ?? c.auroraLocationLabel,
+              'lat': _currentLocation.latitude,
+              'lon': _currentLocation.longitude,
               'temperature_c': temp,
               'feels_like_c': feelsLike,
               'condition': weatherDescription,
@@ -1364,7 +1502,8 @@ class _DisasterPreparednessAdminScreenState
                 .add(payload);
 
             // Current weather document per region
-            final regionDoc = _regionDocId(c.auroraLocationLabel);
+            final regionDoc =
+                _regionDocId(weatherData['location'] ?? c.auroraLocationLabel);
             await FirebaseFirestore.instance
                 .collection('current_weather')
                 .doc(regionDoc)
@@ -1449,2053 +1588,696 @@ class _DisasterPreparednessAdminScreenState
     return s[0].toUpperCase() + s.substring(1);
   }
 
-  // --- Helpers for Firestore-backed AI suggestions and region ---
-  String _regionDocId(String label) => label.replaceAll(' ', '_').toLowerCase();
-
-  IconData _resolveIcon(String name) {
-    switch (name) {
-      case 'cloud':
-        return Icons.cloud;
-      case 'wb_sunny':
-        return Icons.wb_sunny;
-      case 'beach_access':
-        return Icons.beach_access;
-      case 'health_and_safety':
-        return Icons.health_and_safety;
-      case 'warning':
-        return Icons.warning;
-      case 'tips':
-        return Icons.tips_and_updates;
-      default:
-        return Icons.info_outline;
+  // Fetch UV index (mock implementation)
+  String _fetchUVIndex(double lat, double lon) {
+    // In a real implementation, you would call a UV index API
+    // For now, we'll return a mock value based on location/time
+    final hour = DateTime.now().hour;
+    if (hour >= 10 && hour <= 16) {
+      return 'High';
+    } else if (hour >= 8 && hour <= 18) {
+      return 'Medium';
+    } else {
+      return 'Low';
     }
   }
 
-  Color _resolveColor(String name) {
-    switch (name) {
-      case 'red':
-        return Colors.red;
-      case 'orange':
-        return Colors.orange;
-      case 'green':
-        return Colors.green;
-      case 'teal':
-        return Colors.teal;
-      case 'blue':
-        return Colors.blue;
+  // Fetch wave data (mock implementation)
+  String _fetchWaveData(double lat, double lon, String type) {
+    // In a real implementation, you would call a wave data API
+    // For now, we'll return mock values
+    switch (type) {
+      case 'height':
+        return '${1.0 + Random().nextDouble() * 2.0}'.substring(0, 3) + 'm';
+      case 'period':
+        return '${7 + Random().nextInt(5)}s';
+      case 'direction':
+        final directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+        return directions[Random().nextInt(directions.length)];
       default:
-        return primary;
+        return '—';
     }
   }
 
-  String _colorNameForPriority(String p) {
-    switch (p) {
-      case 'high':
-        return 'red';
-      case 'medium':
-        return 'orange';
+  // Fetch tide data (mock implementation)
+  String _fetchTideData(double lat, double lon, String type) {
+    // In a real implementation, you would call a tide data API
+    // For now, we'll return mock values
+    switch (type) {
+      case 'level':
+        return '${0.5 + Random().nextDouble() * 2.0}'.substring(0, 3) + 'm';
+      case 'timing':
+        final now = DateTime.now();
+        final nextHighTide = now.add(Duration(hours: 6 + Random().nextInt(6)));
+        return 'High tide at ${DateFormat('HH:mm').format(nextHighTide)}';
       default:
-        return 'green';
+        return '—';
     }
   }
 
-  String _iconNameForPriority(String p) {
-    switch (p) {
-      case 'high':
-        return 'warning';
-      case 'medium':
-        return 'cloud';
+  // Fetch swell data (mock implementation)
+  String _fetchSwellData(double lat, double lon, String type) {
+    // In a real implementation, you would call a swell data API
+    // For now, we'll return mock values
+    switch (type) {
+      case 'direction':
+        final directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+        return directions[Random().nextInt(directions.length)];
+      case 'size':
+        return '${0.5 + Random().nextDouble() * 1.5}'.substring(0, 3) + 'm';
       default:
-        return 'beach_access';
+        return '—';
     }
   }
 
-  void _showEditAISuggestionDialog(
-      {Map<String, dynamic>? suggestion, String? docId}) {
-    final titleController =
-        TextEditingController(text: suggestion?['title'] ?? '');
-    final messageController =
-        TextEditingController(text: suggestion?['message'] ?? '');
-    String priority = suggestion?['priority'] ?? 'medium';
-    // icon/color derived from priority on save
-    final formKey = GlobalKey<FormState>();
+  // Fetch water temperature (mock implementation)
+  String _fetchWaterTemperature(double lat, double lon) {
+    // In a real implementation, you would call a water temperature API
+    // For now, we'll return a mock value based on location/time
+    final baseTemp = 26.0; // Base temperature for tropical waters
+    final variation = Random().nextDouble() * 2.0 - 1.0; // -1 to +1 variation
+    return '${(baseTemp + variation).toStringAsFixed(1)}°C';
+  }
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: TextWidget(
-          text: suggestion == null ? 'Add AI Suggestion' : 'Edit AI Suggestion',
-          fontSize: 20,
-          color: primary,
-          fontFamily: 'Bold',
-        ),
-        content: SizedBox(
-          width: 400,
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+  // Fetch atmospheric fronts (mock implementation)
+  String _fetchAtmosphericFronts(double lat, double lon) {
+    // In a real implementation, you would call an atmospheric data API
+    // For now, we'll return mock values
+    final fronts = ['Stable', 'Approaching Cold Front', 'High Pressure System'];
+    return fronts[Random().nextInt(fronts.length)];
+  }
+
+  // Generate document ID for region
+  String _regionDocId(String region) {
+    return region
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+  }
+
+  // Build weather chart
+  Widget _buildWeatherChart() {
+    return Container(
+      height: 120,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primary.withOpacity(0.2)),
+      ),
+      child: CustomPaint(
+        painter: _TemperatureChartPainter(),
+        size: const Size(double.infinity, 120),
+      ),
+    );
+  }
+
+  // Build marine conditions card
+  Widget _buildMarineConditionsCard() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primary.withOpacity(0.2)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextWidget(
+              text: 'Marine Conditions',
+              fontSize: 18,
+              color: primary,
+              fontFamily: 'Bold',
+            ),
+            const SizedBox(height: 16),
+            Row(
               children: [
-                TextField(
-                  controller: titleController,
-                  decoration: const InputDecoration(labelText: 'Title'),
+                _buildMarineMetricCard(
+                  'Wave Height',
+                  weatherData['wave_height'] ?? '—',
+                  Icons.waves,
                 ),
-                TextField(
-                  controller: messageController,
-                  decoration: const InputDecoration(labelText: 'Message'),
-                  maxLines: 2,
+                const SizedBox(width: 16),
+                _buildMarineMetricCard(
+                  'Wave Period',
+                  weatherData['wave_period'] ?? '—',
+                  Icons.access_time,
                 ),
-                DropdownButtonFormField<String>(
-                  value: priority,
-                  items: [
-                    DropdownMenuItem(value: 'high', child: Text('High')),
-                    DropdownMenuItem(value: 'medium', child: Text('Medium')),
-                    DropdownMenuItem(value: 'low', child: Text('Low')),
-                  ],
-                  onChanged: (val) {
-                    if (val != null) setState(() => priority = val);
-                  },
-                  decoration: const InputDecoration(labelText: 'Priority'),
-                ),
-                // For demo, icon and color are not editable
               ],
             ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: TextWidget(
-              text: 'Cancel',
-              fontSize: 14,
-              color: grey,
-              fontFamily: 'Regular',
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                _buildMarineMetricCard(
+                  'Tide Level',
+                  weatherData['tide_level'] ?? '—',
+                  Icons.water,
+                ),
+                const SizedBox(width: 16),
+                _buildMarineMetricCard(
+                  'Water Temp',
+                  weatherData['water_temperature'] ?? '—',
+                  Icons.thermostat,
+                ),
+              ],
             ),
-          ),
-          ButtonWidget(
-            label: suggestion == null ? 'Add' : 'Update',
-            onPressed: () async {
-              if (formKey.currentState == null ||
-                  !formKey.currentState!.validate()) return;
-              final iconName = _iconNameForPriority(priority);
-              final colorName = _colorNameForPriority(priority);
-              final payload = {
-                'title': titleController.text,
-                'message': messageController.text,
-                'priority': priority,
-                'icon': iconName,
-                'color': colorName,
-                'region': c.auroraLocationLabel,
-                'updatedAt': FieldValue.serverTimestamp(),
-              };
-              try {
-                final col =
-                    FirebaseFirestore.instance.collection('ai_suggestions');
-                if (docId == null) {
-                  await col.add({
-                    ...payload,
-                    'createdAt': FieldValue.serverTimestamp(),
-                  });
-                } else {
-                  await col.doc(docId).set(payload, SetOptions(merge: true));
-                }
-              } catch (_) {
-                // surface minimal error to user
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: TextWidget(
-                      text: 'Failed to save suggestion',
-                      fontSize: 14,
-                      color: white,
-                    ),
-                    backgroundColor: Colors.red,
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-              }
-              if (context.mounted) Navigator.pop(context);
-            },
-            color: primary,
-            textColor: white,
-            width: 100,
-            height: 45,
-            fontSize: 16,
-            radius: 10,
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Future<void> _deleteAISuggestion(String docId) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('ai_suggestions')
-          .doc(docId)
-          .delete();
-    } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: TextWidget(
-            text: 'Failed to delete suggestion',
-            fontSize: 14,
-            color: white,
-          ),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 2),
+  // Build marine metric card
+  Widget _buildMarineMetricCard(String title, String value, IconData icon) {
+    return Expanded(
+      child: Container(
+        height: 80,
+        decoration: BoxDecoration(
+          color: primary.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: primary.withOpacity(0.3)),
         ),
-      );
-    }
-  }
-
-  // Show dialog to save geofence
-  void _showGeofenceSaveDialog() {
-    final nameController = TextEditingController();
-    final descriptionController = TextEditingController();
-    String type = _newGeofenceType;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: TextWidget(
-          text: 'Save Geofence Zone',
-          fontSize: 20,
-          color: primary,
-          fontFamily: 'Bold',
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(
-                labelText: 'Zone Name',
-                hintText: 'e.g., Beach Safe Zone',
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: descriptionController,
-              decoration: const InputDecoration(
-                labelText: 'Description',
-                hintText: 'e.g., Safe swimming area with lifeguards',
-              ),
-              maxLines: 2,
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: type,
-              items: const [
-                DropdownMenuItem(value: 'safe', child: Text('Safe Zone')),
-                DropdownMenuItem(value: 'danger', child: Text('Danger Zone')),
-              ],
-              onChanged: (value) {
-                if (value != null) {
-                  type = value;
-                }
-              },
-              decoration: const InputDecoration(
-                labelText: 'Zone Type',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() {
-                _isCreatingGeofence = false;
-                _newGeofencePoints = [];
-              });
-            },
-            child: TextWidget(
-              text: 'Cancel',
-              fontSize: 14,
+            Icon(icon, color: primary, size: 24),
+            const SizedBox(height: 4),
+            TextWidget(
+              text: title,
+              fontSize: 12,
               color: grey,
               fontFamily: 'Regular',
             ),
-          ),
-          ButtonWidget(
-            label: 'Save Zone',
-            onPressed: () {
-              if (nameController.text.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Please enter a zone name')),
-                );
-                return;
-              }
-
-              Navigator.pop(context);
-              _createGeofenceZone(
-                nameController.text,
-                type,
-                _newGeofencePoints,
-                descriptionController.text,
-              );
-            },
-            color: primary,
-            textColor: white,
-            width: 100,
-            height: 40,
-            fontSize: 14,
-            radius: 8,
-          ),
-        ],
+            TextWidget(
+              text: value,
+              fontSize: 14,
+              color: black,
+              fontFamily: 'Bold',
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  // Show dialog to create alert
-  void _showCreateAlertDialog({latlng.LatLng? location}) {
-    final titleController = TextEditingController();
-    final messageController = TextEditingController();
-    String priority = 'medium';
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: TextWidget(
-          text: 'Create Emergency Alert',
-          fontSize: 20,
-          color: primary,
-          fontFamily: 'Bold',
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+  // Build atmospheric conditions card
+  Widget _buildAtmosphericConditionsCard() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primary.withOpacity(0.2)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TextField(
-              controller: titleController,
-              decoration: const InputDecoration(
-                labelText: 'Alert Title',
-                hintText: 'e.g., Flash Flood Warning',
-              ),
+            TextWidget(
+              text: 'Atmospheric Conditions',
+              fontSize: 18,
+              color: primary,
+              fontFamily: 'Bold',
             ),
             const SizedBox(height: 16),
-            TextField(
-              controller: messageController,
-              decoration: const InputDecoration(
-                labelText: 'Alert Message',
-                hintText: 'e.g., Flash flooding reported in downtown area',
-              ),
-              maxLines: 3,
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: priority,
-              items: const [
-                DropdownMenuItem(
-                    value: 'high', child: Text('High (Emergency)')),
-                DropdownMenuItem(
-                    value: 'medium', child: Text('Medium (Warning)')),
-                DropdownMenuItem(value: 'low', child: Text('Low (Advisory)')),
+            Row(
+              children: [
+                _buildAtmosphericMetricCard(
+                  'Pressure',
+                  weatherData['pressure'] ?? '—',
+                  Icons.speed,
+                ),
+                const SizedBox(width: 16),
+                _buildAtmosphericMetricCard(
+                  'UV Index',
+                  weatherData['uv_index'] ?? '—',
+                  Icons.wb_sunny,
+                ),
               ],
-              onChanged: (value) {
-                if (value != null) {
-                  priority = value;
-                }
-              },
-              decoration: const InputDecoration(
-                labelText: 'Priority Level',
-              ),
             ),
-            if (location != null) ...[
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  const Icon(Icons.location_on, size: 16, color: Colors.red),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextWidget(
-                      text:
-                          'Alert will be placed at: ${location.latitude.toStringAsFixed(6)}, ${location.longitude.toStringAsFixed(6)}',
-                      fontSize: 12,
-                      color: grey,
-                      fontFamily: 'Regular',
-                    ),
-                  ),
-                ],
-              ),
-            ],
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                _buildAtmosphericMetricCard(
+                  'Fronts',
+                  weatherData['atmospheric_fronts'] ?? '—',
+                  Icons.air,
+                ),
+                const SizedBox(width: 16),
+                _buildAtmosphericMetricCard(
+                  'Visibility',
+                  weatherData['visibility'] ?? '—',
+                  Icons.visibility,
+                ),
+              ],
+            ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: TextWidget(
-              text: 'Cancel',
-              fontSize: 14,
+      ),
+    );
+  }
+
+  // Build atmospheric metric card
+  Widget _buildAtmosphericMetricCard(
+      String title, String value, IconData icon) {
+    return Expanded(
+      child: Container(
+        height: 80,
+        decoration: BoxDecoration(
+          color: primary.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: primary.withOpacity(0.3)),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: primary, size: 24),
+            const SizedBox(height: 4),
+            TextWidget(
+              text: title,
+              fontSize: 12,
               color: grey,
               fontFamily: 'Regular',
             ),
-          ),
-          ButtonWidget(
-            label: 'Create Alert',
-            onPressed: () {
-              if (titleController.text.isEmpty ||
-                  messageController.text.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Please fill all fields')),
-                );
-                return;
-              }
-
-              Navigator.pop(context);
-              _createEmergencyAlert(
-                titleController.text,
-                messageController.text,
-                priority,
-                latitude: location?.latitude,
-                longitude: location?.longitude,
-              );
-            },
-            color: Colors.red,
-            textColor: white,
-            width: 120,
-            height: 40,
-            fontSize: 14,
-            radius: 8,
-          ),
-        ],
+            TextWidget(
+              text: value,
+              fontSize: 14,
+              color: black,
+              fontFamily: 'Bold',
+            ),
+          ],
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final isWide = MediaQuery.of(context).size.width > 900;
     return Scaffold(
-      backgroundColor: white,
-      appBar: AppBar(
-        foregroundColor: white,
-        backgroundColor: primary,
-        elevation: 2,
-        title: TextWidget(
-          text: 'Disaster Preparedness & Weather',
-          fontSize: 20,
-          color: white,
-          fontFamily: 'Bold',
-        ),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(40),
-        children: [
-          if (_isLoading)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 16),
-              child: LinearProgressIndicator(),
-            ),
-          if (_errorMessage != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Row(
-                children: [
-                  const Icon(Icons.error_outline, color: Colors.red),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextWidget(
-                      text: _errorMessage!,
-                      fontSize: 14,
-                      color: Colors.red,
-                      fontFamily: 'Medium',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: primary.withOpacity(0.04),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextWidget(
-                  text: 'Disaster Preparedness & Weather Alerts',
-                  fontSize: 28,
-                  color: primary,
-                  fontFamily: 'Bold',
-                  align: TextAlign.left,
-                ),
-                const SizedBox(height: 12),
-                TextWidget(
-                  text:
-                      'Real-time updates on weather, emergency warnings, and evacuation guides.',
-                  fontSize: 16,
-                  color: black,
-                  fontFamily: 'Regular',
-                  align: TextAlign.left,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 32),
-
-          // Map Section (now at the top as requested)
-          _buildInteractiveUserMapCard(),
-
-          const SizedBox(height: 32),
-
-          // Weather section with new design
-          _buildNewWeatherCard(),
-
-          const SizedBox(height: 40),
-
-          // AI Weather Insights section (keep existing)
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
-            decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.04),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.psychology, color: primary, size: 24),
-                    const SizedBox(width: 8),
-                    TextWidget(
-                      text: 'AI Weather Insights',
-                      fontSize: 22,
-                      color: black,
-                      fontFamily: 'Bold',
-                    ),
-                    const Spacer(),
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text('Add Suggestion'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: secondary,
-                        foregroundColor: black,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8)),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 18, vertical: 12),
-                        textStyle: const TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.bold),
-                      ),
-                      onPressed: () => _showEditAISuggestionDialog(),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                TextWidget(
-                  text:
-                      'Personalized recommendations based on current weather conditions',
-                  fontSize: 14,
-                  color: grey,
-                  fontFamily: 'Regular',
-                ),
-                const SizedBox(height: 18),
-                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: FirebaseFirestore.instance
-                      .collection('ai_suggestions')
-                      .where('region', isEqualTo: c.auroraLocationLabel)
-                      .orderBy('createdAt', descending: true)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (snapshot.hasError) {
-                      print(snapshot.error);
-                      return Center(
-                        child: TextWidget(
-                          text: 'Failed to load suggestions',
-                          fontSize: 14,
-                          color: Colors.red,
-                          fontFamily: 'Regular',
-                        ),
-                      );
-                    }
-                    final docs = snapshot.data?.docs ?? [];
-                    if (docs.isEmpty) {
-                      return Center(
-                        child: TextWidget(
-                          text: 'No AI suggestions found.',
-                          fontSize: 18,
-                          color: grey,
-                          fontFamily: 'Regular',
-                        ),
-                      );
-                    }
-                    final items = docs
-                        .map((d) {
-                          final data = d.data();
-                          final iconName = (data['icon'] ?? 'cloud').toString();
-                          final colorName =
-                              (data['color'] ?? 'blue').toString();
-                          return {
-                            'id': d.id,
-                            'title': data['title'] ?? '',
-                            'message': data['message'] ?? '',
-                            'priority': data['priority'] ?? 'medium',
-                            'icon': _resolveIcon(iconName),
-                            'color': _resolveColor(colorName),
-                            'iconName': iconName,
-                            'colorName': colorName,
-                          };
-                        })
-                        .toList()
-                        .asMap()
-                        .entries
-                        .map((e) =>
-                            _buildAISuggestionCard(e.value, e.key, isWide))
-                        .toList();
-                    return Wrap(
-                      spacing: 24,
-                      runSpacing: 24,
-                      children: items,
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 32),
-
-          // Wave Conditions for Surfing
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.04),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.blue.withOpacity(0.2)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.waves, color: primary, size: 24),
-                    const SizedBox(width: 8),
-                    TextWidget(
-                      text: 'Surf Conditions',
-                      fontSize: 22,
-                      color: black,
-                      fontFamily: 'Bold',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _buildSurfMetricCard('Wave Height',
-                        weatherData['wave_height']!, Icons.height, Colors.blue),
-                    _buildSurfMetricCard(
-                        'Wave Period',
-                        weatherData['wave_period']!,
-                        Icons.timer,
-                        Colors.purple),
-                    _buildSurfMetricCard(
-                        'Direction',
-                        weatherData['wave_direction']!,
-                        Icons.navigation,
-                        Colors.orange),
-                    _buildSurfMetricCard(
-                        'Quality',
-                        weatherData['surf_quality']!,
-                        Icons.thumb_up,
-                        weatherData['surf_quality'] == 'Excellent'
-                            ? Colors.green
-                            : weatherData['surf_quality'] == 'Good'
-                                ? Colors.blue
-                                : Colors.orange),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                TextWidget(
-                  text: 'Surf Recommendation',
-                  fontSize: 16,
-                  color: black,
-                  fontFamily: 'Bold',
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.surfing, color: Colors.blue, size: 24),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextWidget(
-                          text:
-                              'Good surfing conditions today. Waves are consistent with moderate periods. Suitable for intermediate surfers.',
-                          fontSize: 14,
-                          color: black,
-                          fontFamily: 'Regular',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 40),
-        ],
-      ),
-    );
-  }
-
-  // Helper for surf conditions card
-  Widget _buildSurfMetricCard(
-      String label, String value, IconData icon, Color color) {
-    return Container(
-      width: 100,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(height: 8),
-          TextWidget(
-            text: label,
-            fontSize: 12,
-            color: grey,
-            fontFamily: 'Regular',
-          ),
-          TextWidget(
-            text: value,
-            fontSize: 18,
-            color: black,
-            fontFamily: 'Bold',
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Generate surf recommendation based on conditions
-  String _getSurfRecommendation() {
-    if (_waveCondition.quality == 'excellent') {
-      return 'Excellent surfing conditions today! Best times are between 6:00 AM - 10:00 AM when winds are lightest.';
-    } else if (_waveCondition.quality == 'good') {
-      return 'Good surfing conditions today. Waves are consistent with moderate periods. Suitable for intermediate surfers.';
-    } else if (_waveCondition.quality == 'fair') {
-      return 'Fair surfing conditions. Waves are somewhat inconsistent. Better for experienced surfers.';
-    } else {
-      return 'Poor surfing conditions today. Consider other water activities or check back tomorrow.';
-    }
-  }
-
-  // Build alert card for active alerts
-  Widget _buildAlertCard(EmergencyAlert alert) {
-    Color color;
-    switch (alert.priority) {
-      case 'high':
-        color = Colors.red;
-        break;
-      case 'medium':
-        color = Colors.orange;
-        break;
-      default:
-        color = Colors.yellow;
-    }
-
-    return Container(
-      width: 250,
-      margin: const EdgeInsets.only(right: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.warning_amber, color: color, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextWidget(
-                  text: alert.title,
-                  fontSize: 16,
-                  color: black,
-                  fontFamily: 'Bold',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: TextWidget(
-              text: alert.message,
-              fontSize: 14,
-              color: black,
-              fontFamily: 'Regular',
-              maxLines: 2,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
+              // Header
               TextWidget(
-                text: DateFormat('MMM d, h:mm a').format(alert.timestamp),
-                fontSize: 12,
-                color: grey,
-                fontFamily: 'Regular',
-              ),
-              TextWidget(
-                text: 'Source: ${alert.source}',
-                fontSize: 12,
-                color: grey,
-                fontFamily: 'Regular',
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Build visitor activity card
-  Widget _buildVisitorActivityCard(VisitorLocation location) {
-    return Container(
-      width: 220,
-      margin: const EdgeInsets.only(right: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.blue.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue.withOpacity(0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.person, color: Colors.blue, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextWidget(
-                  text: location.visitorName,
-                  fontSize: 16,
-                  color: black,
-                  fontFamily: 'Bold',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          TextWidget(
-            text: 'Location: ${location.locationName}',
-            fontSize: 14,
-            color: black,
-            fontFamily: 'Regular',
-          ),
-          TextWidget(
-            text:
-                'Coordinates: ${location.latitude.toStringAsFixed(4)}, ${location.longitude.toStringAsFixed(4)}',
-            fontSize: 12,
-            color: grey,
-            fontFamily: 'Regular',
-          ),
-          const Spacer(),
-          TextWidget(
-            text: DateFormat('MMM d, h:mm a').format(location.timestamp),
-            fontSize: 12,
-            color: grey,
-            fontFamily: 'Regular',
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Show dialog for visitor details
-  void _showVisitorDetailsDialog(VisitorLocation visitor) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: TextWidget(
-          text: visitor.visitorName,
-          fontSize: 20,
-          color: primary,
-          fontFamily: 'Bold',
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _detailRow('Location', visitor.locationName),
-            _detailRow('Timestamp',
-                DateFormat('MMM d, yyyy h:mm a').format(visitor.timestamp)),
-            _detailRow('Coordinates',
-                '${visitor.latitude.toStringAsFixed(6)}, ${visitor.longitude.toStringAsFixed(6)}'),
-
-            const SizedBox(height: 16),
-            TextWidget(
-              text: 'Visitor History',
-              fontSize: 16,
-              color: black,
-              fontFamily: 'Bold',
-            ),
-            const SizedBox(height: 8),
-            // Mock history data
-            _historyItem('Aschente Beach Resort', 'Aug 28, 10:15 AM'),
-            _historyItem('Downtown Market', 'Aug 27, 3:45 PM'),
-            _historyItem('Aurora Ecopark', 'Aug 27, 11:30 AM'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: TextWidget(
-              text: 'Close',
-              fontSize: 14,
-              color: grey,
-              fontFamily: 'Regular',
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _historyItem(String location, String time) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: Row(
-        children: [
-          const Icon(Icons.place, color: Colors.blue, size: 16),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextWidget(
-                  text: location,
-                  fontSize: 14,
-                  color: black,
-                  fontFamily: 'Medium',
-                ),
-                TextWidget(
-                  text: time,
-                  fontSize: 12,
-                  color: grey,
-                  fontFamily: 'Regular',
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Show dialog for alert details
-  void _showAlertDetailsDialog(EmergencyAlert alert) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: TextWidget(
-          text: alert.title,
-          fontSize: 20,
-          color: primary,
-          fontFamily: 'Bold',
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _detailRow('Priority', alert.priority.toUpperCase()),
-            _detailRow('Status', alert.status),
-            if (alert.latitude != null && alert.longitude != null)
-              _detailRow('Coordinates',
-                  '${alert.latitude!.toStringAsFixed(6)}, ${alert.longitude!.toStringAsFixed(6)}'),
-            _detailRow('Source', alert.source),
-            _detailRow('Timestamp',
-                DateFormat('MMM d, yyyy h:mm a').format(alert.timestamp)),
-            const SizedBox(height: 16),
-            TextWidget(
-              text: 'Alert Message',
-              fontSize: 16,
-              color: black,
-              fontFamily: 'Bold',
-            ),
-            const SizedBox(height: 8),
-            TextWidget(
-              text: alert.message,
-              fontSize: 14,
-              color: black,
-              fontFamily: 'Regular',
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: TextWidget(
-              text: 'Close',
-              fontSize: 14,
-              color: grey,
-              fontFamily: 'Regular',
-            ),
-          ),
-          ButtonWidget(
-            label: 'Resolve Alert',
-            onPressed: () async {
-              await FirebaseFirestore.instance
-                  .collection(_alertsCollection)
-                  .doc(alert.id)
-                  .update({'status': 'resolved'});
-              Navigator.pop(context);
-            },
-            color: Colors.green,
-            textColor: white,
-            width: 120,
-            height: 40,
-            fontSize: 14,
-            radius: 8,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Show dialog for health center details
-  void _showHealthCenterDetailsDialog(HealthCenter center) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(
-              center.isHospital ? Icons.local_hospital : Icons.medical_services,
-              color: center.isHospital ? Colors.red : Colors.green,
-              size: 24,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextWidget(
-                text: center.name,
-                fontSize: 20,
+                text: 'Disaster Preparedness Dashboard',
+                fontSize: 28,
                 color: primary,
                 fontFamily: 'Bold',
               ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _detailRow(
-                'Type', center.isHospital ? 'Hospital' : 'Health Center'),
-            _detailRow('Address', center.address),
-            _detailRow('Contact', center.contactNumber),
-            const SizedBox(height: 16),
-            TextWidget(
-              text: 'Available Services',
-              fontSize: 16,
-              color: black,
-              fontFamily: 'Bold',
-            ),
-            const SizedBox(height: 8),
-            ...center.services.map((service) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4.0),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.check_circle,
-                          color: Colors.green, size: 16),
-                      const SizedBox(width: 8),
-                      TextWidget(
-                        text: service,
-                        fontSize: 14,
-                        color: black,
-                        fontFamily: 'Regular',
-                      ),
-                    ],
-                  ),
-                )),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: TextWidget(
-              text: 'Close',
-              fontSize: 14,
-              color: grey,
-              fontFamily: 'Regular',
-            ),
-          ),
-          ButtonWidget(
-            label: 'Get Directions',
-            onPressed: () {
-              Navigator.pop(context);
-              // In a real app, this would open directions
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Directions would be opened here')),
-              );
-            },
-            color: primary,
-            textColor: white,
-            width: 120,
-            height: 40,
-            fontSize: 14,
-            radius: 8,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Show dialog for location options
-  void _showLocationOptionsDialog(latlng.LatLng location) {
-    // Find nearest health center
-    final nearestCenter =
-        _findNearestHealthCenter(location.latitude, location.longitude);
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: TextWidget(
-          text: 'Location Options',
-          fontSize: 20,
-          color: primary,
-          fontFamily: 'Bold',
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextWidget(
-              text:
-                  'Coordinates: ${location.latitude.toStringAsFixed(6)}, ${location.longitude.toStringAsFixed(6)}',
-              fontSize: 14,
-              color: black,
-              fontFamily: 'Regular',
-            ),
-            const SizedBox(height: 16),
-
-            // Nearest health center section
-            if (nearestCenter != null) ...[
+              const SizedBox(height: 8),
               TextWidget(
-                text: 'Nearest Health Facility',
+                text: 'Monitor weather conditions and emergency alerts',
                 fontSize: 16,
-                color: black,
-                fontFamily: 'Bold',
+                color: grey,
+                fontFamily: 'Regular',
               ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(
-                    nearestCenter.isHospital
-                        ? Icons.local_hospital
-                        : Icons.medical_services,
-                    color: nearestCenter.isHospital ? Colors.red : Colors.green,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        TextWidget(
-                          text: nearestCenter.name,
-                          fontSize: 14,
-                          color: black,
-                          fontFamily: 'Medium',
-                        ),
-                        TextWidget(
-                          text: nearestCenter.address,
-                          fontSize: 12,
-                          color: grey,
-                          fontFamily: 'Regular',
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              TextButton.icon(
-                icon: const Icon(Icons.directions, size: 16),
-                label: const Text('Get Directions'),
-                onPressed: () {
-                  Navigator.pop(context);
-                  // In a real app, this would open directions
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Directions would be opened here')),
-                  );
-                },
-              ),
-              const Divider(),
-            ],
+              const SizedBox(height: 32),
 
-            const SizedBox(height: 8),
-            TextWidget(
-              text: 'Actions',
-              fontSize: 16,
-              color: black,
-              fontFamily: 'Bold',
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: TextWidget(
-              text: 'Close',
-              fontSize: 14,
-              color: grey,
-              fontFamily: 'Regular',
-            ),
-          ),
-          ButtonWidget(
-            label: 'Create Alert Here',
-            onPressed: () {
-              Navigator.pop(context);
-              _showCreateAlertDialog(location: location);
-            },
-            color: Colors.red,
-            textColor: white,
-            width: 140,
-            height: 40,
-            fontSize: 14,
-            radius: 8,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCurrentWeatherCard(Map<String, String> weatherData) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            primary.withOpacity(0.1),
-            secondary.withOpacity(0.1),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: primary.withOpacity(0.2)),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextWidget(
-                    text: weatherData['location']!,
-                    fontSize: 18,
-                    color: black,
-                    fontFamily: 'Bold',
-                  ),
-                  const SizedBox(height: 4),
-                  TextWidget(
-                    text: weatherData['condition']!,
-                    fontSize: 14,
-                    color: grey,
-                    fontFamily: 'Regular',
-                  ),
-                ],
-              ),
-              Icon(
-                Icons.location_on,
-                color: primary,
-                size: 24,
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextWidget(
-                    text: weatherData['temperature']!,
-                    fontSize: 48,
-                    color: black,
-                    fontFamily: 'Bold',
-                  ),
-                  TextWidget(
-                    text: 'Feels like ${weatherData['feels_like']}',
-                    fontSize: 14,
-                    color: grey,
-                    fontFamily: 'Regular',
-                  ),
-                ],
-              ),
+              // Weather Overview Card
               Container(
-                width: 80,
-                height: 80,
+                width: double.infinity,
                 decoration: BoxDecoration(
-                  color: primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(40),
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: primary.withOpacity(0.2)),
                 ),
-                child: Icon(
-                  Icons.wb_sunny,
-                  color: primary,
-                  size: 40,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildWeatherDetailsCard(Map<String, String> weatherData) {
-    final details = [
-      {
-        'label': 'Humidity',
-        'value': weatherData['humidity']!,
-        'icon': Icons.water_drop
-      },
-      {
-        'label': 'Wind Speed',
-        'value': weatherData['wind_speed']!,
-        'icon': Icons.air
-      },
-      {
-        'label': 'Visibility',
-        'value': weatherData['visibility']!,
-        'icon': Icons.visibility
-      },
-      {
-        'label': 'UV Index',
-        'value': weatherData['uv_index']!,
-        'icon': Icons.wb_sunny
-      },
-      {
-        'label': 'Precipitation',
-        'value': weatherData['precipitation']!,
-        'icon': Icons.cloud
-      },
-      {
-        'label': 'Pressure',
-        'value': weatherData['pressure']!,
-        'icon': Icons.speed
-      },
-    ];
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: grey.withOpacity(0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TextWidget(
-            text: 'Weather Details',
-            fontSize: 16,
-            color: black,
-            fontFamily: 'Bold',
-          ),
-          const SizedBox(height: 16),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 2.5,
-            ),
-            itemCount: details.length,
-            itemBuilder: (context, index) {
-              final detail = details[index];
-              return Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: grey.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      detail['icon'] as IconData,
-                      color: primary,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           TextWidget(
-                            text: detail['label'].toString(),
-                            fontSize: 12,
-                            color: grey,
-                            fontFamily: 'Regular',
-                          ),
-                          TextWidget(
-                            text: detail['value'].toString(),
-                            fontSize: 14,
-                            color: black,
+                            text: 'Current Weather',
+                            fontSize: 20,
+                            color: primary,
                             fontFamily: 'Bold',
+                          ),
+                          ButtonWidget(
+                            label: 'Refresh',
+                            onPressed: _refreshWeather,
+                            color: primary,
+                            textColor: white,
                           ),
                         ],
                       ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAISuggestionCard(
-      Map<String, dynamic> suggestion, int index, bool isWide) {
-    Color priorityColor;
-    switch (suggestion['priority']) {
-      case 'high':
-        priorityColor = Colors.red;
-        break;
-      case 'medium':
-        priorityColor = Colors.orange;
-        break;
-      default:
-        priorityColor = Colors.green;
-    }
-
-    return SizedBox(
-      width: isWide ? 350 : double.infinity,
-      child: Card(
-        elevation: 3,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Row(
-            children: [
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: suggestion['color'].withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(25),
-                ),
-                child: Icon(
-                  suggestion['icon'],
-                  color: suggestion['color'],
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        TextWidget(
-                          text: suggestion['title'],
-                          fontSize: 16,
-                          color: black,
-                          fontFamily: 'Bold',
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: priorityColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          // Weather Icon and Main Info
+                          Container(
+                            width: 100,
+                            height: 100,
+                            decoration: BoxDecoration(
+                              color: primary.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Center(
+                              child: Icon(
+                                Icons.wb_sunny,
+                                color: primary,
+                                size: 48,
+                              ),
+                            ),
                           ),
-                          child: TextWidget(
-                            text:
-                                suggestion['priority'].toString().toUpperCase(),
-                            fontSize: 10,
-                            color: priorityColor,
-                            fontFamily: 'Bold',
-                          ),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          icon: const Icon(Icons.edit, size: 18),
-                          color: primary,
-                          onPressed: () => _showEditAISuggestionDialog(
-                              suggestion: suggestion,
-                              docId: suggestion['id'] as String?),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete, size: 18),
-                          color: Colors.red,
-                          onPressed: () =>
-                              _deleteAISuggestion(suggestion['id'] as String),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    TextWidget(
-                      text: suggestion['message'],
-                      fontSize: 14,
-                      color: grey,
-                      fontFamily: 'Regular',
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // New weather UI inspired by the provided image
-  Widget _buildNewWeatherCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Location and controls bar
-          Row(
-            children: [
-              TextWidget(
-                text: 'Current Location: ${weatherData['location']}',
-                fontSize: 16,
-                color: black,
-                fontFamily: 'Medium',
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 24),
-
-          // Current weather with temp and conditions
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Left side with temp and weather icon
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  children: [
-                    // Weather icon
-                    Container(
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        color: Colors.amber.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                      child: (weatherData['condition'] ?? '')
-                              .toLowerCase()
-                              .contains('thunderstorm')
-                          ? const Icon(Icons.flash_on,
-                              color: Colors.amber, size: 36)
-                          : (weatherData['condition'] ?? '')
-                                  .toLowerCase()
-                                  .contains('rain')
-                              ? const Icon(Icons.grain,
-                                  color: Colors.blue, size: 36)
-                              : const Icon(Icons.wb_sunny,
-                                  color: Colors.amber, size: 36),
-                    ),
-                    const SizedBox(width: 16),
-
-                    // Temperature
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            TextWidget(
-                              text: (weatherData['temperature'] ?? '0°C')
-                                  .replaceAll('°C', ''),
-                              fontSize: 48,
-                              color: black,
-                              fontFamily: 'Bold',
-                            ),
-                            TextWidget(
-                              text: '°C',
-                              fontSize: 24,
-                              color: black,
-                              fontFamily: 'Regular',
-                            ),
-                            TextWidget(
-                              text: '|°F',
-                              fontSize: 16,
-                              color: grey,
-                              fontFamily: 'Regular',
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 4),
-
-                        // Weather details
-                        Row(
-                          children: [
-                            Column(
+                          const SizedBox(width: 24),
+                          // Weather Details
+                          Expanded(
+                            child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 TextWidget(
                                   text:
-                                      'Precipitation: ${weatherData['precipitation'] ?? '—'}',
-                                  fontSize: 14,
+                                      'Current Location: ${weatherData['location']}',
+                                  fontSize: 16,
+                                  color: black,
+                                  fontFamily: 'Medium',
+                                ),
+                                const SizedBox(height: 8),
+                                TextWidget(
+                                  text: weatherData['condition'] ?? 'Unknown',
+                                  fontSize: 24,
+                                  color: black,
+                                  fontFamily: 'Bold',
+                                ),
+                                const SizedBox(height: 8),
+                                TextWidget(
+                                  text:
+                                      '${weatherData['temperature'] ?? '0°C'} • Feels like ${weatherData['feels_like'] ?? '0°C'}',
+                                  fontSize: 18,
                                   color: grey,
                                   fontFamily: 'Regular',
                                 ),
+                                const SizedBox(height: 8),
                                 TextWidget(
-                                  text:
-                                      'Humidity: ${weatherData['humidity'] ?? '—'}',
-                                  fontSize: 14,
-                                  color: grey,
-                                  fontFamily: 'Regular',
-                                ),
-                                TextWidget(
-                                  text:
-                                      'Wind: ${weatherData['wind_speed'] ?? '—'}',
-                                  fontSize: 14,
+                                  text: weatherData['timestamp'] ??
+                                      'Last updated: —',
+                                  fontSize: 12,
                                   color: grey,
                                   fontFamily: 'Regular',
                                 ),
                               ],
                             ),
-                          ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      // Weather Details Grid
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey[50],
+                          borderRadius: BorderRadius.circular(8),
                         ),
-                      ],
-                    ),
-                  ],
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            children: [
+                              Row(
+                                children: [
+                                  _buildWeatherDetail(
+                                      'Precipitation',
+                                      weatherData['precipitation'] ?? '—',
+                                      Icons.water_drop),
+                                  _buildWeatherDetail(
+                                      'Humidity',
+                                      weatherData['humidity'] ?? '—',
+                                      Icons.water),
+                                  _buildWeatherDetail(
+                                      'Wind',
+                                      weatherData['wind_speed'] ?? '—',
+                                      Icons.air),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  _buildWeatherDetail(
+                                      'Sunrise',
+                                      weatherData['sunrise'] ?? '—',
+                                      Icons.wb_sunny),
+                                  _buildWeatherDetail(
+                                      'Sunset',
+                                      weatherData['sunset'] ?? '—',
+                                      Icons.nights_stay),
+                                  _buildWeatherDetail(
+                                      'Pressure',
+                                      weatherData['pressure'] ?? '—',
+                                      Icons.speed),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
+              const SizedBox(height: 32),
 
-              const SizedBox(width: 24),
+              // Weather Chart
+              _buildWeatherChart(),
+              const SizedBox(height: 32),
 
-              // Right side with weather title and time
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    TextWidget(
-                      text: 'Weather',
-                      fontSize: 22,
-                      color: black,
-                      fontFamily: 'Bold',
-                      align: TextAlign.right,
-                    ),
-                    TextWidget(
-                      text: weatherData['timestamp'] ??
-                          DateFormat('EEEE h:mm a').format(DateTime.now()),
-                      fontSize: 16,
-                      color: grey,
-                      fontFamily: 'Regular',
-                      align: TextAlign.right,
-                    ),
-                    const SizedBox(height: 8),
-                    TextWidget(
-                      text: weatherData['condition'] ?? 'Unknown',
-                      fontSize: 18,
-                      color: black,
-                      fontFamily: 'Medium',
-                      align: TextAlign.right,
-                    ),
-                  ],
+              // Marine Conditions
+              _buildMarineConditionsCard(),
+              const SizedBox(height: 32),
+
+              // Atmospheric Conditions
+              _buildAtmosphericConditionsCard(),
+              const SizedBox(height: 32),
+
+              // 5-Day Forecast
+              Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: primary.withOpacity(0.2)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextWidget(
+                        text: '5-Day Forecast',
+                        fontSize: 20,
+                        color: primary,
+                        fontFamily: 'Bold',
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        height: 120,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _forecastData.length,
+                          itemBuilder: (context, index) {
+                            final forecast = _forecastData[index];
+                            return Container(
+                              width: 100,
+                              margin: const EdgeInsets.only(right: 16),
+                              decoration: BoxDecoration(
+                                color: primary.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  TextWidget(
+                                    text: forecast.day,
+                                    fontSize: 14,
+                                    color: black,
+                                    fontFamily: 'Bold',
+                                  ),
+                                  TextWidget(
+                                    text: forecast.date,
+                                    fontSize: 12,
+                                    color: grey,
+                                    fontFamily: 'Regular',
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Icon(
+                                    forecast.condition.contains('Rain')
+                                        ? Icons.cloud
+                                        : Icons.wb_sunny,
+                                    color: primary,
+                                    size: 24,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextWidget(
+                                    text: '${forecast.tempHigh}°',
+                                    fontSize: 16,
+                                    color: black,
+                                    fontFamily: 'Bold',
+                                  ),
+                                  TextWidget(
+                                    text: '${forecast.tempLow}°',
+                                    fontSize: 14,
+                                    color: grey,
+                                    fontFamily: 'Regular',
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 32),
+
+              // Interactive Map
+              TextWidget(
+                text: 'User Locations',
+                fontSize: 20,
+                color: primary,
+                fontFamily: 'Bold',
+              ),
+              const SizedBox(height: 16),
+              _buildInteractiveUserMapCard(),
+              const SizedBox(height: 32),
+
+              // Emergency Alerts
+              TextWidget(
+                text: 'Emergency Alerts',
+                fontSize: 20,
+                color: primary,
+                fontFamily: 'Bold',
+              ),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: primary.withOpacity(0.2)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: _activeAlerts.isEmpty
+                      ? Center(
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.notifications_none,
+                                color: grey,
+                                size: 48,
+                              ),
+                              const SizedBox(height: 16),
+                              TextWidget(
+                                text: 'No active emergency alerts',
+                                fontSize: 16,
+                                color: grey,
+                                fontFamily: 'Regular',
+                              ),
+                            ],
+                          ),
+                        )
+                      : Column(
+                          children: _activeAlerts.map((alert) {
+                            Color alertColor = Colors.blue;
+                            if (alert.priority == 'high') {
+                              alertColor = Colors.red;
+                            } else if (alert.priority == 'medium') {
+                              alertColor = Colors.orange;
+                            }
+
+                            return Container(
+                              width: double.infinity,
+                              margin: const EdgeInsets.only(bottom: 16),
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: alertColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: alertColor),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.warning_amber,
+                                        color: alertColor,
+                                        size: 24,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: TextWidget(
+                                          text: alert.title,
+                                          fontSize: 18,
+                                          color: alertColor,
+                                          fontFamily: 'Bold',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextWidget(
+                                    text: alert.message,
+                                    fontSize: 14,
+                                    color: black,
+                                    fontFamily: 'Regular',
+                                  ),
+                                  const SizedBox(height: 8),
+                                  TextWidget(
+                                    text:
+                                        '${DateFormat('MMM dd, yyyy HH:mm').format(alert.timestamp)} • ${alert.source}',
+                                    fontSize: 12,
+                                    color: grey,
+                                    fontFamily: 'Regular',
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ),
                 ),
               ),
             ],
           ),
-
-          const SizedBox(height: 16),
-
-          // Divider
-          const Divider(),
-
-          const SizedBox(height: 16),
-
-          // Hourly forecast
-          Container(
-            height: 100,
-            width: double.infinity,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: CustomPaint(
-                painter: _TemperatureChartPainter(),
-                child: Container(),
-              ),
-            ),
-          ),
-
-          // Time slots
-          Container(
-            height: 30,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _timeSlot('10 PM'),
-                _timeSlot('1 AM'),
-                _timeSlot('4 AM'),
-                _timeSlot('7 AM'),
-                _timeSlot('10 AM'),
-                _timeSlot('1 PM'),
-                _timeSlot('4 PM'),
-                _timeSlot('7 PM'),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // Day of week forecast
-          Container(
-            height: 100,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: 8, // 7 days + today
-              itemBuilder: (context, index) {
-                final labels = [
-                  'Sun',
-                  'Mon',
-                  'Tue',
-                  'Wed',
-                  'Thu',
-                  'Fri',
-                  'Sat',
-                  'Sun'
-                ];
-                final highTemps = [
-                  '28°',
-                  '29°',
-                  '28°',
-                  '29°',
-                  '29°',
-                  '29°',
-                  '28°',
-                  '29°'
-                ];
-                final lowTemps = [
-                  '25°',
-                  '25°',
-                  '25°',
-                  '25°',
-                  '25°',
-                  '25°',
-                  '25°',
-                  '24°'
-                ];
-
-                bool hasThunderstorm = index == 0 || index == 4 || index == 6;
-
-                return Container(
-                  width: 70,
-                  margin: const EdgeInsets.only(right: 8),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      TextWidget(
-                        text: labels[index],
-                        fontSize: 14,
-                        color: black,
-                        fontFamily: 'Medium',
-                      ),
-                      const SizedBox(height: 8),
-                      Icon(
-                        hasThunderstorm
-                            ? Icons.flash_on
-                            : (index % 2 == 0 ? Icons.wb_cloudy : Icons.cloud),
-                        color: hasThunderstorm ? Colors.amber : Colors.grey,
-                        size: 28,
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          TextWidget(
-                            text: highTemps[index],
-                            fontSize: 14,
-                            color: black,
-                            fontFamily: 'Bold',
-                          ),
-                          TextWidget(
-                            text: ' ${lowTemps[index]}',
-                            fontSize: 14,
-                            color: grey,
-                            fontFamily: 'Regular',
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Alert banner
-          if (_activeAlerts.isNotEmpty)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.red),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.warning_amber,
-                          color: Colors.red, size: 24),
-                      const SizedBox(width: 8),
-                      TextWidget(
-                        text: 'General Flood Advisory (Severe)',
-                        fontSize: 18,
-                        color: Colors.red,
-                        fontFamily: 'Bold',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  TextWidget(
-                    text: 'Region 3 (Central Luzon)',
-                    fontSize: 16,
-                    color: black,
-                    fontFamily: 'Medium',
-                  ),
-                  TextWidget(
-                    text: '4 hours ago – PAGASA',
-                    fontSize: 14,
-                    color: grey,
-                    fontFamily: 'Regular',
-                  ),
-                  const SizedBox(height: 8),
-                  TextWidget(
-                    text:
-                        'Under present weather conditions. At 3:00 PM today, the Low Pressure Area (LPA) was estimated based on all available at 675 km East of Borongan City, Eastern Samar (12.5°N, 131...',
-                    fontSize: 14,
-                    color: black,
-                    fontFamily: 'Regular',
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: () {
-                      // View more info
-                    },
-                    child: const Text('More info'),
-                  ),
-                ],
-              ),
-            ),
-        ],
+        ),
       ),
     );
   }
 
-  // Helper to build map legend items
-  Widget _buildMapLegendItem(String label, Color color, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.5)),
-      ),
+  // Build weather detail widget
+  Widget _buildWeatherDetail(String label, String value, IconData icon) {
+    return Expanded(
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: color, size: 16),
-          const SizedBox(width: 6),
-          TextWidget(
-            text: label,
-            fontSize: 12,
-            color: black,
-            fontFamily: 'Medium',
+          Icon(icon, color: primary, size: 16),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextWidget(
+                text: label,
+                fontSize: 12,
+                color: grey,
+                fontFamily: 'Regular',
+              ),
+              TextWidget(
+                text: value,
+                fontSize: 14,
+                color: black,
+                fontFamily: 'Bold',
+              ),
+            ],
           ),
         ],
       ),
-    );
-  }
-
-  // Build visitor marker list
-  List<Marker> _buildVisitorMarkers() {
-    return _visitorLocations.map((visitor) {
-      return Marker(
-        width: 30,
-        height: 30,
-        point: latlng.LatLng(visitor.latitude, visitor.longitude),
-        child: GestureDetector(
-          onTap: () {
-            _showVisitorDetailsDialog(visitor);
-          },
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.person_pin_circle,
-                color: Colors.blue, size: 24),
-          ),
-        ),
-      );
-    }).toList();
-  }
-
-  // Build alert marker list
-  List<Marker> _buildAlertMarkers() {
-    return _activeAlerts
-        .where((alert) => alert.latitude != null && alert.longitude != null)
-        .map((alert) {
-      Color color;
-      switch (alert.priority) {
-        case 'high':
-          color = Colors.red;
-          break;
-        case 'medium':
-          color = Colors.orange;
-          break;
-        default:
-          color = Colors.yellow;
-      }
-
-      return Marker(
-        width: 36,
-        height: 36,
-        point: latlng.LatLng(alert.latitude!, alert.longitude!),
-        child: GestureDetector(
-          onTap: () {
-            _showAlertDetailsDialog(alert);
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.2),
-              shape: BoxShape.circle,
-              border: Border.all(color: color, width: 2),
-            ),
-            child: Icon(Icons.warning_amber, color: color, size: 24),
-          ),
-        ),
-      );
-    }).toList();
-  }
-
-  // Build health center marker list
-  List<Marker> _buildHealthCenterMarkers() {
-    return _healthCenters.map((center) {
-      return Marker(
-        width: 30,
-        height: 30,
-        point: latlng.LatLng(center.latitude, center.longitude),
-        child: GestureDetector(
-          onTap: () {
-            _showHealthCenterDetailsDialog(center);
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: center.isHospital ? Colors.red : Colors.green,
-                width: 2,
-              ),
-            ),
-            child: Icon(
-              center.isHospital ? Icons.local_hospital : Icons.medical_services,
-              color: center.isHospital ? Colors.red : Colors.green,
-              size: 20,
-            ),
-          ),
-        ),
-      );
-    }).toList();
-  }
-
-  // Build geofence point markers when creating
-  List<Marker> _buildGeofencePointMarkers() {
-    if (!_isCreatingGeofence) return [];
-
-    return _newGeofencePoints.asMap().entries.map((entry) {
-      final index = entry.key;
-      final point = entry.value;
-
-      return Marker(
-        width: 24,
-        height: 24,
-        point: point,
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: _newGeofenceType == 'safe' ? Colors.green : Colors.red,
-              width: 2,
-            ),
-          ),
-          child: Center(
-            child: TextWidget(
-              text: '${index + 1}',
-              fontSize: 12,
-              color: black,
-              fontFamily: 'Bold',
-            ),
-          ),
-        ),
-      );
-    }).toList();
-  }
-
-  // Helper method for time slots in weather chart
-  Widget _timeSlot(String time) {
-    return TextWidget(
-      text: time,
-      fontSize: 12,
-      color: grey,
-      fontFamily: 'Regular',
     );
   }
 }

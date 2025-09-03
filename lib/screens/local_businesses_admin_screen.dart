@@ -10,6 +10,8 @@ import 'package:autour_web/widgets/textfield_widget.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:math' as math;
+import 'package:url_launcher/url_launcher.dart'; // Added for launching URLs
+import 'package:url_launcher/url_launcher.dart'; // Added for launching URLs
 
 final FirebaseFirestore firestore = FirebaseFirestore.instance;
 
@@ -18,6 +20,7 @@ class Business {
   String category;
   String location;
   String description;
+  String? registrationNumber; // New field for registration number
   String? phone;
   String? email;
   String? hours;
@@ -36,12 +39,16 @@ class Business {
   // Geolocation fields
   double? latitude;
   double? longitude;
+  // Timestamp fields for room availability and pricing
+  DateTime? roomAvailabilityLastUpdated;
+  DateTime? priceLastUpdated;
 
   Business({
     required this.name,
     required this.category,
     required this.location,
     required this.description,
+    this.registrationNumber,
     this.phone,
     this.email,
     this.hours,
@@ -58,7 +65,71 @@ class Business {
     this.telegram,
     this.latitude,
     this.longitude,
+    this.roomAvailabilityLastUpdated,
+    this.priceLastUpdated,
   });
+
+  // Convert Business object to Firestore-compatible map
+  Map<String, dynamic> toMap() {
+    return {
+      'name': name,
+      'category': category,
+      'location': location,
+      'description': description,
+      'registrationNumber': registrationNumber,
+      'phone': phone,
+      'email': email,
+      'hours': hours,
+      'roomsAvailable': roomsAvailable,
+      'totalRooms': totalRooms,
+      'roomTypes': roomTypes,
+      'priceRange': priceRange,
+      'prices': prices,
+      'fares': fares,
+      'image': image,
+      'tiktok': tiktok,
+      'facebook': facebook,
+      'instagram': instagram,
+      'telegram': telegram,
+      'latitude': latitude,
+      'longitude': longitude,
+      'roomAvailabilityLastUpdated': roomAvailabilityLastUpdated?.toIso8601String(),
+      'priceLastUpdated': priceLastUpdated?.toIso8601String(),
+    };
+  }
+
+  // Create Business object from Firestore map
+  factory Business.fromMap(Map<String, dynamic> map) {
+    return Business(
+      name: map['name'],
+      category: map['category'],
+      location: map['location'],
+      description: map['description'],
+      registrationNumber: map['registrationNumber'],
+      phone: map['phone'],
+      email: map['email'],
+      hours: map['hours'],
+      roomsAvailable: map['roomsAvailable'],
+      totalRooms: map['totalRooms'],
+      roomTypes: List<String>.from(map['roomTypes'] ?? []),
+      priceRange: map['priceRange'],
+      prices: Map<String, dynamic>.from(map['prices'] ?? {}),
+      fares: Map<String, dynamic>.from(map['fares'] ?? {}),
+      image: map['image'],
+      tiktok: map['tiktok'],
+      facebook: map['facebook'],
+      instagram: map['instagram'],
+      telegram: map['telegram'],
+      latitude: map['latitude'],
+      longitude: map['longitude'],
+      roomAvailabilityLastUpdated: map['roomAvailabilityLastUpdated'] != null
+          ? DateTime.parse(map['roomAvailabilityLastUpdated'])
+          : null,
+      priceLastUpdated: map['priceLastUpdated'] != null
+          ? DateTime.parse(map['priceLastUpdated'])
+          : null,
+    );
+  }
 }
 
 class LocalBusinessesAdminScreen extends StatefulWidget {
@@ -83,6 +154,9 @@ class _LocalBusinessesAdminScreenState
     'Tours',
   ];
 
+  // For adding new categories
+  final Set<String> _customCategories = <String>{};
+
   String selectedCategory = 'All';
   final TextEditingController searchController = TextEditingController();
   String searchQuery = '';
@@ -92,35 +166,15 @@ class _LocalBusinessesAdminScreenState
   String _searchQuery = '';
   bool _isMapView = false;
 
+  // Simulate user role (in a real app, this would come from authentication)
+  final bool _isUserAdmin = true; // Set to false for business owner role
+
   void _setupFirestoreListener() {
     businessesRef.snapshots().listen((snapshot) {
       setState(() {
         businesses = snapshot.docs.map((doc) {
           final data = doc.data() as Map<String, dynamic>;
-          return Business(
-            name: data['name'],
-            category: data['category'],
-            location: data['location'],
-            description: data['description'],
-            phone: data['phone'],
-            email: data['email'],
-            hours: data['hours'],
-            roomsAvailable: data['roomsAvailable'],
-            totalRooms: data['totalRooms'],
-            roomTypes: data['roomTypes']?.cast<String>(),
-            priceRange: data['priceRange'],
-            prices: data['prices']?.cast<String, dynamic>(),
-            fares: data['fares']?.cast<String, dynamic>(),
-            image: data['image'],
-            // Social media fields
-            tiktok: data['tiktok'],
-            facebook: data['facebook'],
-            instagram: data['instagram'],
-            telegram: data['telegram'],
-            // Geolocation fields
-            latitude: data['latitude'],
-            longitude: data['longitude'],
-          );
+          return Business.fromMap(data);
         }).toList();
         businessIds = snapshot.docs.map((doc) => doc.id).toList();
       });
@@ -128,57 +182,11 @@ class _LocalBusinessesAdminScreenState
   }
 
   Future<void> addBusiness(Business business) async {
-    await businessesRef.add({
-      'name': business.name,
-      'category': business.category,
-      'location': business.location,
-      'description': business.description,
-      'phone': business.phone,
-      'email': business.email,
-      'hours': business.hours,
-      'roomsAvailable': business.roomsAvailable,
-      'totalRooms': business.totalRooms,
-      'roomTypes': business.roomTypes,
-      'priceRange': business.priceRange,
-      'prices': business.prices,
-      'fares': business.fares,
-      'image': business.image,
-      // Social media fields
-      'tiktok': business.tiktok,
-      'facebook': business.facebook,
-      'instagram': business.instagram,
-      'telegram': business.telegram,
-      // Geolocation fields
-      'latitude': business.latitude,
-      'longitude': business.longitude,
-    });
+    await businessesRef.add(business.toMap());
   }
 
   Future<void> updateBusiness(String id, Business business) async {
-    await businessesRef.doc(id).update({
-      'name': business.name,
-      'category': business.category,
-      'location': business.location,
-      'description': business.description,
-      'phone': business.phone,
-      'email': business.email,
-      'hours': business.hours,
-      'roomsAvailable': business.roomsAvailable,
-      'totalRooms': business.totalRooms,
-      'roomTypes': business.roomTypes,
-      'priceRange': business.priceRange,
-      'prices': business.prices,
-      'fares': business.fares,
-      'image': business.image,
-      // Social media fields
-      'tiktok': business.tiktok,
-      'facebook': business.facebook,
-      'instagram': business.instagram,
-      'telegram': business.telegram,
-      // Geolocation fields
-      'latitude': business.latitude,
-      'longitude': business.longitude,
-    });
+    await businessesRef.doc(id).update(business.toMap());
   }
 
   Future<void> deleteBusiness(String id) async {
@@ -191,6 +199,16 @@ class _LocalBusinessesAdminScreenState
     }
   }
 
+  // Method to add a new category
+  void _addNewCategory(String category) {
+    if (category.isNotEmpty && !categories.contains(category)) {
+      setState(() {
+        categories.add(category);
+        _customCategories.add(category);
+      });
+    }
+  }
+
   void _showBusinessDialog({Business? business, String? id}) {
     final nameController = TextEditingController(text: business?.name ?? '');
     String selectedCategory = business?.category ??
@@ -199,6 +217,8 @@ class _LocalBusinessesAdminScreenState
         TextEditingController(text: business?.location ?? '');
     final descriptionController =
         TextEditingController(text: business?.description ?? '');
+    final registrationNumberController =
+        TextEditingController(text: business?.registrationNumber ?? ''); // New field
     final phoneController = TextEditingController(text: business?.phone ?? '');
     final emailController = TextEditingController(text: business?.email ?? '');
     final hoursController = TextEditingController(text: business?.hours ?? '');
@@ -234,6 +254,8 @@ class _LocalBusinessesAdminScreenState
         TextEditingController(text: business?.latitude?.toString() ?? '');
     final longitudeController =
         TextEditingController(text: business?.longitude?.toString() ?? '');
+    // New category controller
+    final newCategoryController = TextEditingController();
 
     final formKey = GlobalKey<FormState>();
     String? _uploadedImageUrl;
@@ -359,6 +381,7 @@ class _LocalBusinessesAdminScreenState
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // Business Name field with role-based editing restriction
                     TextFieldWidget(
                       label: 'Business Name',
                       controller: nameController,
@@ -368,6 +391,7 @@ class _LocalBusinessesAdminScreenState
                       height: 60,
                       radius: 10,
                       hasValidator: true,
+                      enabled: _isUserAdmin, // Only admins can edit business name
                       validator: (value) => value == null || value.isEmpty
                           ? 'Enter business name'
                           : null,
@@ -375,6 +399,22 @@ class _LocalBusinessesAdminScreenState
                     SizedBox(
                       height: 10,
                     ),
+                    // Registration Number field
+                    TextFieldWidget(
+                      label: 'Registration Number',
+                      controller: registrationNumberController,
+                      borderColor: primary,
+                      hintColor: grey,
+                      width: 350,
+                      height: 60,
+                      radius: 10,
+                      hasValidator: false,
+                      enabled: _isUserAdmin, // Only admins can edit registration number
+                    ),
+                    SizedBox(
+                      height: 10,
+                    ),
+                    // Category dropdown with add new category option
                     SizedBox(
                       width: 350,
                       height: 60,
@@ -400,6 +440,39 @@ class _LocalBusinessesAdminScreenState
                             fillColor: Colors.white),
                       ),
                     ),
+                    // Add new category section
+                    if (_isUserAdmin) // Only admins can add new categories
+                      Column(
+                        children: [
+                          SizedBox(height: 10),
+                          TextFieldWidget(
+                            label: 'Add New Category',
+                            controller: newCategoryController,
+                            borderColor: primary,
+                            hintColor: grey,
+                            width: 350,
+                            height: 60,
+                            radius: 10,
+                            hasValidator: false,
+                            hint: 'Enter new category name',
+                          ),
+                          SizedBox(height: 5),
+                          ElevatedButton(
+                            onPressed: () {
+                              if (newCategoryController.text.isNotEmpty) {
+                                _addNewCategory(newCategoryController.text);
+                                newCategoryController.clear();
+                                setState(() {}); // Refresh the dropdown
+                              }
+                            },
+                            child: Text('Add Category'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: secondary,
+                              foregroundColor: black,
+                            ),
+                          ),
+                        ],
+                      ),
                     if (selectedCategory == 'Accommodations')
                       Column(
                         children: [
@@ -688,7 +761,7 @@ class _LocalBusinessesAdminScreenState
                                         height: 80,
                                         child: Icon(
                                           Icons.location_pin,
-                                          color: Colors.red,
+                                          color: _getCategoryColor(selectedCategory),
                                           size: 40,
                                         ),
                                       ),
@@ -915,17 +988,33 @@ class _LocalBusinessesAdminScreenState
                   longitude = double.tryParse(longitudeController.text);
                 }
 
+                // Parse room information and update timestamps if needed
+                int? roomsAvailable = int.tryParse(roomsAvailableController.text);
+                int? totalRooms = int.tryParse(totalRoomsController.text);
+                
+                // Update timestamps if room information changed
+                DateTime? roomAvailabilityLastUpdated = business?.roomAvailabilityLastUpdated;
+                DateTime? priceLastUpdated = business?.priceLastUpdated;
+                
+                // Check if room information has changed
+                if (business != null && 
+                    (business.roomsAvailable != roomsAvailable || 
+                     business.totalRooms != totalRooms)) {
+                  roomAvailabilityLastUpdated = DateTime.now();
+                }
+
                 if (business == null) {
                   addBusiness(Business(
                     name: nameController.text,
                     category: selectedCategory,
                     location: locationController.text,
                     description: descriptionController.text,
+                    registrationNumber: registrationNumberController.text, // New field
                     phone: phoneController.text,
                     email: emailController.text,
                     hours: hoursController.text,
-                    roomsAvailable: int.tryParse(roomsAvailableController.text),
-                    totalRooms: int.tryParse(totalRoomsController.text),
+                    roomsAvailable: roomsAvailable,
+                    totalRooms: totalRooms,
                     roomTypes: roomTypesController.text.isNotEmpty
                         ? roomTypesController.text
                             .split(',')
@@ -957,6 +1046,9 @@ class _LocalBusinessesAdminScreenState
                     // Geolocation fields
                     latitude: latitude,
                     longitude: longitude,
+                    // Timestamp fields
+                    roomAvailabilityLastUpdated: roomAvailabilityLastUpdated,
+                    priceLastUpdated: priceLastUpdated,
                   ));
                 } else if (id != null) {
                   updateBusiness(
@@ -966,12 +1058,12 @@ class _LocalBusinessesAdminScreenState
                         category: selectedCategory,
                         location: locationController.text,
                         description: descriptionController.text,
+                        registrationNumber: registrationNumberController.text, // New field
                         phone: phoneController.text,
                         email: emailController.text,
                         hours: hoursController.text,
-                        roomsAvailable:
-                            int.tryParse(roomsAvailableController.text),
-                        totalRooms: int.tryParse(totalRoomsController.text),
+                        roomsAvailable: roomsAvailable,
+                        totalRooms: totalRooms,
                         roomTypes: roomTypesController.text.isNotEmpty
                             ? roomTypesController.text
                                 .split(',')
@@ -1006,6 +1098,9 @@ class _LocalBusinessesAdminScreenState
                         // Geolocation fields
                         latitude: latitude,
                         longitude: longitude,
+                        // Timestamp fields
+                        roomAvailabilityLastUpdated: roomAvailabilityLastUpdated,
+                        priceLastUpdated: priceLastUpdated,
                       ));
                 }
                 Navigator.pop(context);
@@ -1392,70 +1487,7 @@ class _LocalBusinessesAdminScreenState
                   child: GestureDetector(
                     onTap: () {
                       // Show business details when marker is tapped
-                      final index = filteredBusinesses.indexOf(business);
-                      if (index != -1) {
-                        showDialog(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            title: TextWidget(
-                              text: business.name,
-                              fontSize: 20,
-                              color: primary,
-                              fontFamily: 'Bold',
-                            ),
-                            content: SingleChildScrollView(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  TextWidget(
-                                    text:
-                                        '${business.category} - ${business.location}',
-                                    fontSize: 14,
-                                    color: grey,
-                                    fontFamily: 'Regular',
-                                  ),
-                                  const SizedBox(height: 8),
-                                  TextWidget(
-                                    text: business.description,
-                                    fontSize: 13,
-                                    color: black,
-                                    fontFamily: 'Regular',
-                                  ),
-                                  if (business.phone != null &&
-                                      business.phone!.isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 8),
-                                      child: Row(
-                                        children: [
-                                          const Icon(Icons.phone,
-                                              size: 16, color: Colors.grey),
-                                          const SizedBox(width: 4),
-                                          TextWidget(
-                                            text: business.phone!,
-                                            fontSize: 12,
-                                            color: grey,
-                                            fontFamily: 'Regular',
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: TextWidget(
-                                  text: 'Close',
-                                  fontSize: 14,
-                                  color: grey,
-                                  fontFamily: 'Regular',
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }
+                      _showBusinessDetailsDialog(business);
                     },
                     child: Icon(
                       Icons.location_pin,
@@ -1468,6 +1500,245 @@ class _LocalBusinessesAdminScreenState
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // Show business details in a dialog
+  void _showBusinessDetailsDialog(Business business) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: TextWidget(
+          text: business.name,
+          fontSize: 20,
+          color: primary,
+          fontFamily: 'Bold',
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextWidget(
+                text: '${business.category} - ${business.location}',
+                fontSize: 14,
+                color: grey,
+                fontFamily: 'Regular',
+              ),
+              const SizedBox(height: 8),
+              TextWidget(
+                text: business.description,
+                fontSize: 13,
+                color: black,
+                fontFamily: 'Regular',
+              ),
+              if (business.registrationNumber != null && business.registrationNumber!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.confirmation_number, size: 16, color: Colors.blue),
+                      const SizedBox(width: 4),
+                      TextWidget(
+                        text: 'Registration: ${business.registrationNumber}',
+                        fontSize: 12,
+                        color: grey,
+                        fontFamily: 'Regular',
+                      ),
+                    ],
+                  ),
+                ),
+              if (business.phone != null && business.phone!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.phone, size: 16, color: Colors.grey),
+                      const SizedBox(width: 4),
+                      TextWidget(
+                        text: business.phone!,
+                        fontSize: 12,
+                        color: grey,
+                        fontFamily: 'Regular',
+                      ),
+                    ],
+                  ),
+                ),
+              if (business.email != null && business.email!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.email, size: 16, color: Colors.grey),
+                      const SizedBox(width: 4),
+                      TextWidget(
+                        text: business.email!,
+                        fontSize: 12,
+                        color: grey,
+                        fontFamily: 'Regular',
+                      ),
+                    ],
+                  ),
+                ),
+              if (business.hours != null && business.hours!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.access_time,
+                          size: 16, color: Colors.grey),
+                      const SizedBox(width: 4),
+                      TextWidget(
+                        text: business.hours!,
+                        fontSize: 12,
+                        color: grey,
+                        fontFamily: 'Regular',
+                      ),
+                    ],
+                  ),
+                ),
+              // Social Media Links
+              if ((business.tiktok != null && business.tiktok!.isNotEmpty) ||
+                  (business.facebook != null &&
+                      business.facebook!.isNotEmpty) ||
+                  (business.instagram != null &&
+                      business.instagram!.isNotEmpty) ||
+                  (business.telegram != null && business.telegram!.isNotEmpty))
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextWidget(
+                        text: 'Social Media:',
+                        fontSize: 12,
+                        color: primary,
+                        fontFamily: 'Bold',
+                      ),
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          if (business.tiktok != null &&
+                              business.tiktok!.isNotEmpty)
+                            _buildSocialMediaButton(
+                                Icons.music_note, 'TikTok', business.tiktok!),
+                          if (business.facebook != null &&
+                              business.facebook!.isNotEmpty)
+                            _buildSocialMediaButton(
+                                Icons.facebook, 'Facebook', business.facebook!),
+                          if (business.instagram != null &&
+                              business.instagram!.isNotEmpty)
+                            _buildSocialMediaButton(Icons.camera_alt,
+                                'Instagram', business.instagram!),
+                          if (business.telegram != null &&
+                              business.telegram!.isNotEmpty)
+                            _buildSocialMediaButton(
+                                Icons.send, 'Telegram', business.telegram!),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              if (business.category == 'Accommodations' &&
+                  business.roomsAvailable != null &&
+                  business.totalRooms != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.bed, color: Colors.blue, size: 16),
+                          const SizedBox(width: 4),
+                          TextWidget(
+                            text:
+                                '${business.roomsAvailable}/${business.totalRooms} rooms available',
+                            fontSize: 12,
+                            color: Colors.blue,
+                            fontFamily: 'Medium',
+                          ),
+                        ],
+                      ),
+                      if (business.roomAvailabilityLastUpdated != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: TextWidget(
+                            text:
+                                'Last updated: ${_formatDateTime(business.roomAvailabilityLastUpdated!)}',
+                            fontSize: 10,
+                            color: grey,
+                            fontFamily: 'Regular',
+                          ),
+                        ),
+                      const SizedBox(height: 4),
+                      TextWidget(
+                        text: 'Note: Room availability and pricing may change',
+                        fontSize: 10,
+                        color: Colors.orange,
+                        fontFamily: 'Regular',
+                      ),
+                    ],
+                  ),
+                ),
+              // Location with Google Maps link
+              if (business.latitude != null && business.longitude != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on,
+                              size: 16, color: Colors.red),
+                          const SizedBox(width: 4),
+                          TextWidget(
+                            text: 'Coordinates: ${business.latitude!.toStringAsFixed(4)}, '
+                                '${business.longitude!.toStringAsFixed(4)}',
+                            fontSize: 12,
+                            color: grey,
+                            fontFamily: 'Regular',
+                          ),
+                          const SizedBox(width: 8),
+                          // Google Maps link
+                          IconButton(
+                            icon: const Icon(Icons.map, size: 16, color: Colors.blue),
+                            onPressed: () {
+                              final url = 'https://www.google.com/maps/search/?api=1&query=${business.latitude},${business.longitude}';
+                              _launchURL(url);
+                            },
+                            padding: EdgeInsets.zero,
+                            constraints: BoxConstraints(),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      TextWidget(
+                        text: 'Click the map icon to view on Google Maps',
+                        fontSize: 10,
+                        color: grey,
+                        fontFamily: 'Regular',
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: TextWidget(
+              text: 'Close',
+              fontSize: 14,
+              color: grey,
+              fontFamily: 'Regular',
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1748,6 +2019,22 @@ class _LocalBusinessesAdminScreenState
                 align: TextAlign.left,
                 maxLines: 3,
               ),
+              if (business.registrationNumber != null && business.registrationNumber!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.confirmation_number, size: 16, color: Colors.blue),
+                      const SizedBox(width: 4),
+                      TextWidget(
+                        text: 'Reg: ${business.registrationNumber}',
+                        fontSize: 12,
+                        color: grey,
+                        fontFamily: 'Regular',
+                      ),
+                    ],
+                  ),
+                ),
               if (business.phone != null && business.phone!.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
@@ -1846,16 +2133,39 @@ class _LocalBusinessesAdminScreenState
                   business.totalRooms != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.bed, color: Colors.blue, size: 16),
-                      const SizedBox(width: 4),
+                      Row(
+                        children: [
+                          const Icon(Icons.bed, color: Colors.blue, size: 16),
+                          const SizedBox(width: 4),
+                          TextWidget(
+                            text:
+                                '${business.roomsAvailable}/${business.totalRooms} rooms available',
+                            fontSize: 12,
+                            color: Colors.blue,
+                            fontFamily: 'Medium',
+                          ),
+                        ],
+                      ),
+                      if (business.roomAvailabilityLastUpdated != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: TextWidget(
+                            text:
+                                'Last updated: ${_formatDateTime(business.roomAvailabilityLastUpdated!)}',
+                            fontSize: 10,
+                            color: grey,
+                            fontFamily: 'Regular',
+                          ),
+                        ),
+                      const SizedBox(height: 4),
                       TextWidget(
-                        text:
-                            '${business.roomsAvailable}/${business.totalRooms} rooms available',
-                        fontSize: 12,
-                        color: Colors.blue,
-                        fontFamily: 'Medium',
+                        text: 'Note: Room availability and pricing may change',
+                        fontSize: 10,
+                        color: Colors.orange,
+                        fontFamily: 'Regular',
                       ),
                     ],
                   ),
@@ -1919,6 +2229,17 @@ class _LocalBusinessesAdminScreenState
                         color: grey,
                         fontFamily: 'Regular',
                       ),
+                      const SizedBox(width: 8),
+                      // Google Maps link
+                      IconButton(
+                        icon: const Icon(Icons.map, size: 16, color: Colors.blue),
+                        onPressed: () {
+                          final url = 'https://www.google.com/maps/search/?api=1&query=${business.latitude},${business.longitude}';
+                          _launchURL(url);
+                        },
+                        padding: EdgeInsets.zero,
+                        constraints: BoxConstraints(),
+                      ),
                     ],
                   ),
                 ),
@@ -1933,11 +2254,7 @@ class _LocalBusinessesAdminScreenState
   Widget _buildSocialMediaButton(IconData icon, String name, String url) {
     return ElevatedButton.icon(
       onPressed: () {
-        // In a real app, you would open the URL
-        // For now, we'll just show a snackbar
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Opening $name: $url')),
-        );
+        _launchURL(url);
       },
       icon: Icon(icon, size: 16),
       label: Text(name, style: TextStyle(fontSize: 12)),
@@ -1949,5 +2266,22 @@ class _LocalBusinessesAdminScreenState
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
+  }
+
+  // Helper method to format DateTime
+  String _formatDateTime(DateTime dateTime) {
+    return '${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+
+  // Helper method to launch URLs
+  void _launchURL(String url) async {
+    final uri = Uri.parse(url);
+    if (await launchUrl(uri)) {
+      // URL launched successfully
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not launch $url')),
+      );
+    }
   }
 }

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:autour_web/utils/colors.dart';
 import 'package:autour_web/widgets/text_widget.dart';
+import 'dart:html' as html;
+import 'dart:convert';
 
 class HealthSurveillanceAdminScreen extends StatefulWidget {
   const HealthSurveillanceAdminScreen({super.key});
@@ -151,6 +153,7 @@ class _HealthSurveillanceAdminScreenState
           }
 
           return {
+            'id': d.id, // Add document ID for deletion
             'name': name,
             'userId': userId,
             'temperature': temperature,
@@ -238,23 +241,38 @@ class _HealthSurveillanceAdminScreenState
                       align: TextAlign.left,
                     ),
                     const Spacer(),
-                    SizedBox(
-                      width: isWide ? 350 : 220,
-                      child: TextField(
-                        controller: searchController,
-                        onChanged: (val) => setState(() => searchQuery = val),
-                        decoration: InputDecoration(
-                          prefixIcon:
-                              const Icon(Icons.search, color: Colors.grey),
-                          hintText:
-                              'Search by name, symptoms, exposure, or vaccination',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
+                    Row(
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: _exportToCSV,
+                          icon: const Icon(Icons.download),
+                          label: const Text('Export CSV'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: secondary,
+                            foregroundColor: black,
                           ),
-                          contentPadding: const EdgeInsets.symmetric(
-                              vertical: 0, horizontal: 12),
                         ),
-                      ),
+                        const SizedBox(width: 16),
+                        SizedBox(
+                          width: isWide ? 350 : 220,
+                          child: TextField(
+                            controller: searchController,
+                            onChanged: (val) =>
+                                setState(() => searchQuery = val),
+                            decoration: InputDecoration(
+                              prefixIcon:
+                                  const Icon(Icons.search, color: Colors.grey),
+                              hintText:
+                                  'Search by name, symptoms, exposure, or vaccination',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 0, horizontal: 12),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -341,6 +359,12 @@ class _HealthSurveillanceAdminScreenState
                                   color: Colors.blue),
                               onPressed: () {
                                 _showDeclarationDetails(d);
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () {
+                                _deleteDeclaration(d['id']);
                               },
                             ),
                           ],
@@ -522,5 +546,165 @@ class _HealthSurveillanceAdminScreenState
       }
     }
     return count.toString();
+  }
+
+  // Add a new health declaration
+  void _addDeclaration() {
+    final formKey = GlobalKey<FormState>();
+    final nameController = TextEditingController();
+    final temperatureController = TextEditingController();
+    final symptomsController = TextEditingController();
+    final exposureController = TextEditingController();
+    final vaccinationController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Health Declaration'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Name'),
+                validator: (value) =>
+                    value?.isEmpty == true ? 'Name is required' : null,
+              ),
+              TextFormField(
+                controller: temperatureController,
+                decoration:
+                    const InputDecoration(labelText: 'Temperature (°C)'),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+              ),
+              TextFormField(
+                controller: symptomsController,
+                decoration: const InputDecoration(labelText: 'Symptoms'),
+              ),
+              TextFormField(
+                controller: exposureController,
+                decoration: const InputDecoration(labelText: 'Exposure'),
+              ),
+              TextFormField(
+                controller: vaccinationController,
+                decoration: const InputDecoration(labelText: 'Vaccination'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (formKey.currentState?.validate() == true) {
+                try {
+                  await _db.collection(collectionName).add({
+                    'name': nameController.text,
+                    'temperature': temperatureController.text,
+                    'symptoms': symptomsController.text,
+                    'exposure': exposureController.text,
+                    'vaccination': vaccinationController.text,
+                    'createdAt': FieldValue.serverTimestamp(),
+                  });
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('Declaration added successfully')),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error adding declaration: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Delete a health declaration
+  void _deleteDeclaration(String documentId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Declaration'),
+        content:
+            const Text('Are you sure you want to delete this declaration?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                // For collection group queries, we need to find the document reference
+                // We'll query for the document with the specific ID
+                final querySnapshot = await _db
+                    .collectionGroup(collectionName)
+                    .where(FieldPath.documentId, isEqualTo: documentId)
+                    .limit(1)
+                    .get();
+                if (querySnapshot.docs.isNotEmpty) {
+                  await querySnapshot.docs.first.reference.delete();
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('Declaration deleted successfully')),
+                  );
+                } else {
+                  throw Exception('Document not found');
+                }
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Error deleting declaration: $e')),
+                );
+              }
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Export data to CSV
+  void _exportToCSV() {
+    final csvData = <List<String>>[
+      ['Name', 'Date', 'Temperature', 'Symptoms', 'Exposure', 'Vaccination'],
+    ];
+
+    for (var declaration in filteredDeclarations) {
+      csvData.add([
+        declaration['name']?.toString() ?? '',
+        declaration['date']?.toString() ?? '',
+        declaration['temperature']?.toString() ?? '',
+        declaration['symptoms']?.toString() ?? '',
+        declaration['exposure']?.toString() ?? '',
+        declaration['vaccination']?.toString() ?? '',
+      ]);
+    }
+
+    // Convert to CSV string
+    final csvString = csvData.map((row) => row.join(',')).join('\n');
+
+    // Create and download CSV file
+    final blob = html.Blob([csvString], 'text/csv');
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute('download', 'health_declarations.csv')
+      ..click();
+    html.Url.revokeObjectUrl(url);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Data exported to CSV successfully')),
+    );
   }
 }
