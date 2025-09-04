@@ -48,7 +48,8 @@ String bpi = 'assets/images/clarity_bank-solid.png';
 const String weatherApiEndpoint =
     'https://api.openweathermap.org/data/2.5/weather';
 // TODO: Provide your API key, or pass via --dart-define=OPENWEATHER_API_KEY=YOUR_KEY when building.
-const String weatherApiKey = String.fromEnvironment('OPENWEATHER_API_KEY',
+const String weatherApiKey = String.fromEnvironment(
+    '67a96ca939095cc12748c226c7d3851c',
     defaultValue: '67a96ca939095cc12748c226c7d3851c');
 // Default coordinates for Aurora Province (Baler, Aurora, PH)
 const double auroraLat = 15.7589;
