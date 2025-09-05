@@ -8,6 +8,7 @@ import 'package:autour_web/screens/disaster_preparedness_admin_screen.dart';
 import 'package:autour_web/screens/community_engagement_admin_screen.dart';
 import 'package:autour_web/screens/health_surveillance_admin_screen.dart';
 import 'package:autour_web/screens/common_dialects_admin_screen.dart';
+import 'package:autour_web/screens/travel_planner_admin_screen.dart';
 import 'package:autour_web/widgets/analytics_graphs.dart';
 // Added imports for PDF generation
 import 'package:pdf/pdf.dart';
@@ -601,6 +602,23 @@ class HomeScreen extends StatelessWidget {
                           MaterialPageRoute(
                             builder: (context) =>
                                 const CommonDialectsAdminScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    _buildFeatureCard(
+                      context,
+                      icon: Icons.tour,
+                      color: Colors.indigo,
+                      title: 'Travel Planner',
+                      description:
+                          'Manage destinations, activities, and travel tips for tourists.',
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                const TravelPlannerAdminScreen(),
                           ),
                         );
                       },

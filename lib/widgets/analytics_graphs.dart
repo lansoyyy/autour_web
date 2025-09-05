@@ -446,7 +446,7 @@ class NationalityPieChart extends StatelessWidget {
           const Padding(
             padding: EdgeInsets.only(left: 8, bottom: 4),
             child: Text(
-              'Visitor Nationality (Sabang Beach)',
+              'Visitor Nationality',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
             ),
           ),
@@ -457,7 +457,6 @@ class NationalityPieChart extends StatelessWidget {
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: FirebaseFirestore.instance
                     .collection('scans')
-                    .where('destinationName', isEqualTo: 'Sabang Beach')
                     .where(
                       'scannedAt',
                       isGreaterThan: Timestamp.fromDate(
