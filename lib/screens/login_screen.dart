@@ -22,8 +22,10 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isObscure = true;
 
   // Hardcoded credentials
-  static const String _hardcodedUsername = 'autour_admin';
-  static const String _hardcodedPassword = 'autour_admin';
+  static const Map<String, String> _accounts = {
+    'admin': 'autour_admin',
+    'super_admin': 'autour_super',
+  };
 
   @override
   void dispose() {
@@ -43,27 +45,72 @@ class _LoginScreenState extends State<LoginScreen> {
     await Future.delayed(const Duration(seconds: 1));
 
     if (mounted) {
-      // Check hardcoded credentials
+      // Check hardcoded credentials first
       String enteredUsername = emailController.text.trim();
       String enteredPassword = passwordController.text.trim();
 
-      if (enteredUsername == _hardcodedUsername &&
-          enteredPassword == _hardcodedPassword) {
-        // Login successful
+      String? accountType;
+      if (enteredUsername == 'admin' && enteredPassword == _accounts['admin']) {
+        accountType = 'Admin';
+      } else if (enteredUsername == 'super_admin' &&
+          enteredPassword == _accounts['super_admin']) {
+        accountType = 'Super Admin';
+      }
+
+      if (accountType != null) {
+        // Login successful for hardcoded accounts
         setState(() {
           _isLoading = false;
         });
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
+          MaterialPageRoute(
+            builder: (context) => HomeScreen(accountType: accountType!),
+          ),
         );
       } else {
-        // Login failed
+        // Check admin users in Firestore
+        await _checkAdminUser(enteredUsername, enteredPassword);
+      }
+    }
+  }
+
+  Future<void> _checkAdminUser(String username, String password) async {
+    try {
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('admins')
+          .where('username', isEqualTo: username)
+          .where('password', isEqualTo: password)
+          .where('status', isEqualTo: 'Active')
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        final adminDoc = querySnapshot.docs.first;
+        final adminData = adminDoc.data();
+        final role = adminData['role'] ?? 'Admin';
+
+        setState(() {
+          _isLoading = false;
+        });
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => HomeScreen(accountType: role),
+          ),
+        );
+      } else {
         setState(() {
           _isLoading = false;
         });
         showToast('Invalid username or password. Please try again.');
       }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      showToast('Error during login. Please try again.');
     }
   }
 
@@ -105,17 +152,16 @@ class _LoginScreenState extends State<LoginScreen> {
                         Map<String, dynamic> data =
                             snapshot.data!.data() as Map<String, dynamic>;
                         return Container(
-                          width: 120,
-                          height: 120,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(16),
-                            image: DecorationImage(
-                              image: NetworkImage(data['logo']),
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        );
+                            width: 120,
+                            height: 120,
+                            decoration: BoxDecoration(
+                              color: Colors.grey.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(16),
+                              image: DecorationImage(
+                                image: NetworkImage(data['logo']),
+                                fit: BoxFit.cover,
+                              ),
+                            ));
                       }),
                   const SizedBox(height: 32),
                   TextWidget(
@@ -186,8 +232,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     fontSize: 18,
                     radius: 12,
                   ),
-                  const SizedBox(height: 24),
-                  // Optionally, add a 'Forgot password?' or other admin links here
                 ],
               ),
             ),

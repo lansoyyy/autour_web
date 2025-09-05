@@ -9,6 +9,7 @@ import 'package:autour_web/screens/community_engagement_admin_screen.dart';
 import 'package:autour_web/screens/health_surveillance_admin_screen.dart';
 import 'package:autour_web/screens/common_dialects_admin_screen.dart';
 import 'package:autour_web/screens/travel_planner_admin_screen.dart';
+import 'package:autour_web/screens/user_management_screen.dart';
 import 'package:autour_web/widgets/analytics_graphs.dart';
 // Added imports for PDF generation
 import 'package:pdf/pdf.dart';
@@ -16,9 +17,160 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:universal_html/html.dart' as html;
 import 'dart:typed_data';
+// Added imports for image picking and Firebase Storage
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:html' as html_web;
 
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+class HomeScreen extends StatefulWidget {
+  final String accountType;
+
+  const HomeScreen({super.key, required this.accountType});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final ImagePicker _picker = ImagePicker();
+  bool _isUploading = false;
+
+  // Function to pick and upload image
+  Future<void> _pickAndUploadLogo() async {
+    try {
+      // Pick image
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+      );
+
+      if (image == null) return;
+
+      setState(() {
+        _isUploading = true;
+      });
+
+      // Read image as bytes for web
+      final bytes = await image.readAsBytes();
+
+      // Upload to Firebase Storage
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child('logos')
+          .child('${DateTime.now().millisecondsSinceEpoch}.jpg');
+
+      // Upload bytes directly for web compatibility
+      final uploadTask = storageRef.putData(bytes);
+      final snapshot = await uploadTask;
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+
+      // Update Firestore
+      await FirebaseFirestore.instance
+          .collection('config')
+          .doc('asset')
+          .update({
+        'logo': downloadUrl,
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Logo updated successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating logo: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+        });
+      }
+    }
+  }
+
+  // Function to show user details in a dialog
+  void _showUserDetails(BuildContext context, Map<String, dynamic> userData) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: TextWidget(
+            text: 'User Details',
+            fontSize: 22,
+            color: primary,
+            fontFamily: 'Bold',
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDetailRow('Full Name', userData['fullName']),
+                _buildDetailRow('Email', userData['email']),
+                _buildDetailRow('Phone', userData['mobile']),
+                _buildDetailRow('Nationality', userData['nationality']),
+                _buildDetailRow('Date of Birth', userData['dob']),
+                _buildDetailRow('Gender', userData['gender']),
+                _buildDetailRow('Address', userData['address']),
+                _buildDetailRow(
+                    'Emergency Contact', userData['emergencyContact']),
+                _buildDetailRow(
+                    'Medical Conditions', userData['medicalConditions']),
+                _buildDetailRow('Allergies', userData['allergies']),
+                _buildDetailRow('Blood Type', userData['bloodType']),
+                _buildDetailRow(
+                    'Insurance Provider', userData['insuranceProvider']),
+                _buildDetailRow('Policy Number', userData['policyNumber']),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Helper method to build detail rows
+  Widget _buildDetailRow(String label, dynamic value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextWidget(
+            text: label,
+            fontSize: 14,
+            color: primary,
+            fontFamily: 'Bold',
+          ),
+          const SizedBox(height: 4),
+          TextWidget(
+            text: value?.toString() ?? 'N/A',
+            fontSize: 16,
+            color: black,
+            fontFamily: 'Regular',
+          ),
+          const Divider(),
+        ],
+      ),
+    );
+  }
 
   // Function to generate and download PDF with user data
   Future<void> _downloadUsersPdf(BuildContext context) async {
@@ -142,7 +294,28 @@ class HomeScreen extends StatelessWidget {
           color: white,
           fontFamily: 'Bold',
         ),
-        // Add PDF download button to app bar
+        actions: [
+          if (_isUploading)
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  strokeWidth: 2,
+                ),
+              ),
+            ),
+          Visibility(
+            visible: widget.accountType == 'Super Admin',
+            child: IconButton(
+              icon: const Icon(Icons.edit),
+              onPressed: _isUploading ? null : _pickAndUploadLogo,
+              tooltip: 'Update Logo',
+            ),
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(40),
@@ -157,7 +330,7 @@ class HomeScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   TextWidget(
-                    text: 'Welcome, Admin!',
+                    text: 'Welcome, ${widget.accountType}!',
                     fontSize: 32,
                     color: primary,
                     fontFamily: 'Bold',
@@ -174,15 +347,19 @@ class HomeScreen extends StatelessWidget {
                   ),
                   // Add PDF download button in the welcome section
                   const SizedBox(height: 20),
-                  ButtonWidget(
-                    label: 'Download Users PDF Report',
-                    onPressed: () => _downloadUsersPdf(context),
-                    color: primary,
-                    textColor: white,
-                    width: 250,
-                    height: 45,
-                    fontSize: 16,
-                    radius: 10,
+                  Visibility(
+                    visible: widget.accountType == 'Super Admin' ||
+                        widget.accountType == 'Admin',
+                    child: ButtonWidget(
+                      label: 'Download Users PDF Report',
+                      onPressed: () => _downloadUsersPdf(context),
+                      color: primary,
+                      textColor: white,
+                      width: 250,
+                      height: 45,
+                      fontSize: 16,
+                      radius: 10,
+                    ),
                   ),
                 ],
               ),
@@ -499,6 +676,7 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
           ),
+
           const SizedBox(height: 40),
           Container(
             padding: const EdgeInsets.all(24),
@@ -521,107 +699,166 @@ class HomeScreen extends StatelessWidget {
                   spacing: 32,
                   runSpacing: 32,
                   children: [
-                    _buildFeatureCard(
-                      context,
-                      icon: Icons.store,
-                      color: secondary,
-                      title: 'Manage Local Businesses',
-                      description:
-                          'Marketplace for local businesses, accommodations, and services.',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                const LocalBusinessesAdminScreen(),
-                          ),
-                        );
-                      },
+                    Visibility(
+                      visible: widget.accountType == 'Super Admin' ||
+                          widget.accountType == 'Admin' ||
+                          widget.accountType == 'Tourism' ||
+                          widget.accountType == 'Barangay',
+                      child: _buildFeatureCard(
+                        context,
+                        icon: Icons.store,
+                        color: secondary,
+                        title: 'Manage Local Businesses',
+                        description:
+                            'Marketplace for local businesses, accommodations, and services.',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const LocalBusinessesAdminScreen(),
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                    _buildFeatureCard(
-                      context,
-                      icon: Icons.warning_amber,
-                      color: Colors.redAccent,
-                      title: 'Disaster Preparedness & Weather Alerts',
-                      description:
-                          'Real-time weather, emergency warnings, and AI safety insights.',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                const DisasterPreparednessAdminScreen(),
-                          ),
-                        );
-                      },
+                    Visibility(
+                      visible: widget.accountType == 'Super Admin' ||
+                          widget.accountType == 'Admin' ||
+                          widget.accountType == 'Police' ||
+                          widget.accountType == 'MDRRMO',
+                      child: _buildFeatureCard(
+                        context,
+                        icon: Icons.warning_amber,
+                        color: Colors.redAccent,
+                        title: 'Disaster Preparedness & Weather Alerts',
+                        description:
+                            'Real-time weather, emergency warnings, and AI safety insights.',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const DisasterPreparednessAdminScreen(),
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                    _buildFeatureCard(
-                      context,
-                      icon: Icons.groups,
-                      color: Colors.green,
-                      title: 'Community Engagement & Cultural Preservation',
-                      description:
-                          'Share stories, heritage, and promote sustainable tourism.',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                const CommunityEngagementAdminScreen(),
-                          ),
-                        );
-                      },
+                    Visibility(
+                      visible: widget.accountType == 'Super Admin' ||
+                          widget.accountType == 'Admin' ||
+                          widget.accountType == 'Tourism' ||
+                          widget.accountType == 'Barangay' ||
+                          widget.accountType == 'Police',
+                      child: _buildFeatureCard(
+                        context,
+                        icon: Icons.groups,
+                        color: Colors.green,
+                        title: 'Community Engagement & Cultural Preservation',
+                        description:
+                            'Share stories, heritage, and promote sustainable tourism.',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const CommunityEngagementAdminScreen(),
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                    _buildFeatureCard(
-                      context,
-                      icon: Icons.health_and_safety,
-                      color: Colors.deepPurple,
-                      title: 'Health Surveillance & Disease Prevention',
-                      description:
-                          'AI-powered health declaration, screening, vaccination, and contact tracing.',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                const HealthSurveillanceAdminScreen(),
-                          ),
-                        );
-                      },
+                    Visibility(
+                      visible: widget.accountType == 'Super Admin' ||
+                          widget.accountType == 'Admin' ||
+                          widget.accountType == 'Barangay' ||
+                          widget.accountType == 'MDRRMO' ||
+                          widget.accountType == 'Police',
+                      child: _buildFeatureCard(
+                        context,
+                        icon: Icons.health_and_safety,
+                        color: Colors.deepPurple,
+                        title: 'Health Surveillance & Disease Prevention',
+                        description:
+                            'AI-powered health declaration, screening, vaccination, and contact tracing.',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const HealthSurveillanceAdminScreen(),
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                    _buildFeatureCard(
-                      context,
-                      icon: Icons.language,
-                      color: Colors.orange,
-                      title: 'Common Dialects',
-                      description:
-                          'Manage and verify local dialects, phrases, and examples.',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                const CommonDialectsAdminScreen(),
-                          ),
-                        );
-                      },
+                    Visibility(
+                      visible: widget.accountType == 'Super Admin' ||
+                          widget.accountType == 'Admin' ||
+                          widget.accountType == 'Barangay' ||
+                          widget.accountType == 'Tourism',
+                      child: _buildFeatureCard(
+                        context,
+                        icon: Icons.language,
+                        color: Colors.orange,
+                        title: 'Common Dialects',
+                        description:
+                            'Manage and verify local dialects, phrases, and examples.',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const CommonDialectsAdminScreen(),
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                    _buildFeatureCard(
-                      context,
-                      icon: Icons.tour,
-                      color: Colors.indigo,
-                      title: 'Travel Planner',
-                      description:
-                          'Manage destinations, activities, and travel tips for tourists.',
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                const TravelPlannerAdminScreen(),
-                          ),
-                        );
-                      },
+                    Visibility(
+                      visible: widget.accountType == 'Super Admin' ||
+                          widget.accountType == 'Admin' ||
+                          widget.accountType == 'Barangay' ||
+                          widget.accountType == 'Tourism',
+                      child: _buildFeatureCard(
+                        context,
+                        icon: Icons.tour,
+                        color: Colors.indigo,
+                        title: 'Travel Planner',
+                        description:
+                            'Manage destinations, activities, and travel tips for tourists.',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const TravelPlannerAdminScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    // User Management Card
+                    Visibility(
+                      visible: widget.accountType == 'Super Admin',
+                      child: _buildFeatureCard(
+                        context,
+                        icon: Icons.group,
+                        color: Colors.blue,
+                        title: 'User Management',
+                        description:
+                            'View and manage all registered users in the system.',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const UserManagementScreen(),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ],
                 ),
