@@ -24,7 +24,8 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'AuTour',
-      home: LoginScreen(),
+      // home: LoginScreen(),
+      home: HomeScreen(accountType: 'Super Admin'),
     );
   }
 }

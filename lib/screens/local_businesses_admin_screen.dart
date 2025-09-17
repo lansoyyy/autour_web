@@ -39,6 +39,8 @@ class Business {
   // Geolocation fields
   double? latitude;
   double? longitude;
+  // Municipality field
+  String? municipality;
   // Timestamp fields for room availability and pricing
   DateTime? roomAvailabilityLastUpdated;
   DateTime? priceLastUpdated;
@@ -65,6 +67,7 @@ class Business {
     this.telegram,
     this.latitude,
     this.longitude,
+    this.municipality,
     this.roomAvailabilityLastUpdated,
     this.priceLastUpdated,
   });
@@ -93,7 +96,9 @@ class Business {
       'telegram': telegram,
       'latitude': latitude,
       'longitude': longitude,
-      'roomAvailabilityLastUpdated': roomAvailabilityLastUpdated?.toIso8601String(),
+      'municipality': municipality,
+      'roomAvailabilityLastUpdated':
+          roomAvailabilityLastUpdated?.toIso8601String(),
       'priceLastUpdated': priceLastUpdated?.toIso8601String(),
     };
   }
@@ -122,6 +127,7 @@ class Business {
       telegram: map['telegram'],
       latitude: map['latitude'],
       longitude: map['longitude'],
+      municipality: map['municipality'],
       roomAvailabilityLastUpdated: map['roomAvailabilityLastUpdated'] != null
           ? DateTime.parse(map['roomAvailabilityLastUpdated'])
           : null,
@@ -154,10 +160,24 @@ class _LocalBusinessesAdminScreenState
     'Tours',
   ];
 
+  // Municipalities in Aurora Province
+  final List<String> municipalities = [
+    'All',
+    'Baler',
+    'Casiguran',
+    'Dilasag',
+    'Dinalungan',
+    'Dingalan',
+    'Dipaculao',
+    'Maria Aurora',
+    'San Luis',
+  ];
+
   // For adding new categories
   final Set<String> _customCategories = <String>{};
 
   String selectedCategory = 'All';
+  String selectedMunicipality = 'All';
   final TextEditingController searchController = TextEditingController();
   String searchQuery = '';
   List<Business> businesses = [];
@@ -213,12 +233,14 @@ class _LocalBusinessesAdminScreenState
     final nameController = TextEditingController(text: business?.name ?? '');
     String selectedCategory = business?.category ??
         categories[1]; // Default to first non-'All' category
+    String selectedMunicipality = business?.municipality ??
+        municipalities[1]; // Default to first non-'All' municipality
     final locationController =
         TextEditingController(text: business?.location ?? '');
     final descriptionController =
         TextEditingController(text: business?.description ?? '');
-    final registrationNumberController =
-        TextEditingController(text: business?.registrationNumber ?? ''); // New field
+    final registrationNumberController = TextEditingController(
+        text: business?.registrationNumber ?? ''); // New field
     final phoneController = TextEditingController(text: business?.phone ?? '');
     final emailController = TextEditingController(text: business?.email ?? '');
     final hoursController = TextEditingController(text: business?.hours ?? '');
@@ -266,6 +288,7 @@ class _LocalBusinessesAdminScreenState
         business?.latitude != null && business?.longitude != null
             ? LatLng(business!.latitude!, business.longitude!)
             : null;
+    MapController mapController = MapController();
 
     Future<void> _pickImage(StateSetter setState) async {
       // Create an input element for file selection
@@ -349,20 +372,6 @@ class _LocalBusinessesAdminScreenState
       });
     }
 
-    // Function to generate random coordinates near Aurora Province for demo
-    LatLng _generateRandomLocation() {
-      // Aurora Province coordinates (approximate center)
-      const double centerLat = 15.7589;
-      const double centerLon = 121.5623;
-
-      // Generate random offset within ~0.1 degrees (about 11km)
-      final random = math.Random();
-      final latOffset = (random.nextDouble() - 0.5) * 0.2;
-      final lonOffset = (random.nextDouble() - 0.5) * 0.2;
-
-      return LatLng(centerLat + latOffset, centerLon + lonOffset);
-    }
-
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -391,7 +400,8 @@ class _LocalBusinessesAdminScreenState
                       height: 60,
                       radius: 10,
                       hasValidator: true,
-                      enabled: _isUserAdmin, // Only admins can edit business name
+                      enabled:
+                          _isUserAdmin, // Only admins can edit business name
                       validator: (value) => value == null || value.isEmpty
                           ? 'Enter business name'
                           : null,
@@ -409,7 +419,37 @@ class _LocalBusinessesAdminScreenState
                       height: 60,
                       radius: 10,
                       hasValidator: false,
-                      enabled: _isUserAdmin, // Only admins can edit registration number
+                      enabled:
+                          _isUserAdmin, // Only admins can edit registration number
+                    ),
+                    SizedBox(
+                      height: 10,
+                    ),
+                    // Municipality dropdown
+                    SizedBox(
+                      width: 350,
+                      height: 60,
+                      child: DropdownButtonFormField<String>(
+                        value: selectedMunicipality,
+                        items: municipalities
+                            .where((m) => m != 'All')
+                            .map((String value) {
+                          return DropdownMenuItem<String>(
+                            value: value,
+                            child: Text(value),
+                          );
+                        }).toList(),
+                        onChanged: (newValue) {
+                          setState(() {
+                            selectedMunicipality = newValue!;
+                          });
+                        },
+                        decoration: InputDecoration(
+                            labelText: 'Municipality',
+                            border: OutlineInputBorder(),
+                            filled: true,
+                            fillColor: Colors.white),
+                      ),
                     ),
                     SizedBox(
                       height: 10,
@@ -739,6 +779,7 @@ class _LocalBusinessesAdminScreenState
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(10),
                             child: FlutterMap(
+                              mapController: mapController,
                               options: MapOptions(
                                 initialCenter: _selectedLocation ??
                                     const LatLng(15.7589, 121.5623),
@@ -761,11 +802,44 @@ class _LocalBusinessesAdminScreenState
                                         height: 80,
                                         child: Icon(
                                           Icons.location_pin,
-                                          color: _getCategoryColor(selectedCategory),
+                                          color: _getCategoryColor(
+                                              selectedCategory),
                                           size: 40,
                                         ),
                                       ),
                                   ],
+                                ),
+                                // Add zoom controls
+                                Positioned(
+                                  right: 10,
+                                  bottom: 10,
+                                  child: Column(
+                                    children: [
+                                      FloatingActionButton(
+                                        mini: true,
+                                        onPressed: () {
+                                          mapController.move(
+                                              mapController.camera.center,
+                                              mapController.camera.zoom + 1);
+                                        },
+                                        child: Icon(Icons.add),
+                                        backgroundColor: Colors.white,
+                                        foregroundColor: Colors.black,
+                                      ),
+                                      SizedBox(height: 5),
+                                      FloatingActionButton(
+                                        mini: true,
+                                        onPressed: () {
+                                          mapController.move(
+                                              mapController.camera.center,
+                                              mapController.camera.zoom - 1);
+                                        },
+                                        child: Icon(Icons.remove),
+                                        backgroundColor: Colors.white,
+                                        foregroundColor: Colors.black,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),
@@ -775,18 +849,6 @@ class _LocalBusinessesAdminScreenState
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
-                            ElevatedButton(
-                              onPressed: () {
-                                final randomLocation =
-                                    _generateRandomLocation();
-                                _handleMapTap(randomLocation, setState);
-                              },
-                              child: Text('Generate Random Location'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: primary,
-                                foregroundColor: white,
-                              ),
-                            ),
                             ElevatedButton(
                               onPressed: () {
                                 setState(() {
@@ -989,17 +1051,19 @@ class _LocalBusinessesAdminScreenState
                 }
 
                 // Parse room information and update timestamps if needed
-                int? roomsAvailable = int.tryParse(roomsAvailableController.text);
+                int? roomsAvailable =
+                    int.tryParse(roomsAvailableController.text);
                 int? totalRooms = int.tryParse(totalRoomsController.text);
-                
+
                 // Update timestamps if room information changed
-                DateTime? roomAvailabilityLastUpdated = business?.roomAvailabilityLastUpdated;
+                DateTime? roomAvailabilityLastUpdated =
+                    business?.roomAvailabilityLastUpdated;
                 DateTime? priceLastUpdated = business?.priceLastUpdated;
-                
+
                 // Check if room information has changed
-                if (business != null && 
-                    (business.roomsAvailable != roomsAvailable || 
-                     business.totalRooms != totalRooms)) {
+                if (business != null &&
+                    (business.roomsAvailable != roomsAvailable ||
+                        business.totalRooms != totalRooms)) {
                   roomAvailabilityLastUpdated = DateTime.now();
                 }
 
@@ -1009,7 +1073,8 @@ class _LocalBusinessesAdminScreenState
                     category: selectedCategory,
                     location: locationController.text,
                     description: descriptionController.text,
-                    registrationNumber: registrationNumberController.text, // New field
+                    registrationNumber:
+                        registrationNumberController.text, // New field
                     phone: phoneController.text,
                     email: emailController.text,
                     hours: hoursController.text,
@@ -1038,6 +1103,8 @@ class _LocalBusinessesAdminScreenState
                                     )))))
                         : null,
                     image: imageUrl,
+                    // Municipality field
+                    municipality: selectedMunicipality,
                     // Social media fields
                     tiktok: tiktokController.text,
                     facebook: facebookController.text,
@@ -1058,7 +1125,8 @@ class _LocalBusinessesAdminScreenState
                         category: selectedCategory,
                         location: locationController.text,
                         description: descriptionController.text,
-                        registrationNumber: registrationNumberController.text, // New field
+                        registrationNumber:
+                            registrationNumberController.text, // New field
                         phone: phoneController.text,
                         email: emailController.text,
                         hours: hoursController.text,
@@ -1090,6 +1158,8 @@ class _LocalBusinessesAdminScreenState
                                             )))))
                             : null,
                         image: imageUrl,
+                        // Municipality field
+                        municipality: selectedMunicipality,
                         // Social media fields
                         tiktok: tiktokController.text,
                         facebook: facebookController.text,
@@ -1099,7 +1169,8 @@ class _LocalBusinessesAdminScreenState
                         latitude: latitude,
                         longitude: longitude,
                         // Timestamp fields
-                        roomAvailabilityLastUpdated: roomAvailabilityLastUpdated,
+                        roomAvailabilityLastUpdated:
+                            roomAvailabilityLastUpdated,
                         priceLastUpdated: priceLastUpdated,
                       ));
                 }
@@ -1183,6 +1254,8 @@ class _LocalBusinessesAdminScreenState
     return businesses.where((business) {
       final matchesCategory =
           selectedCategory == 'All' || business.category == selectedCategory;
+      final matchesMunicipality = selectedMunicipality == 'All' ||
+          business.municipality == selectedMunicipality;
       final matchesSearch = business.name
               .toLowerCase()
               .contains(searchQuery.toLowerCase()) ||
@@ -1190,7 +1263,7 @@ class _LocalBusinessesAdminScreenState
               .toLowerCase()
               .contains(searchQuery.toLowerCase()) ||
           business.location.toLowerCase().contains(searchQuery.toLowerCase());
-      return matchesCategory && matchesSearch;
+      return matchesCategory && matchesMunicipality && matchesSearch;
     }).toList();
   }
 
@@ -1366,6 +1439,47 @@ class _LocalBusinessesAdminScreenState
                     },
                   ),
                 ),
+                const SizedBox(height: 16),
+                // Municipality Filters
+                Container(
+                  height: 50,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: municipalities.length,
+                    itemBuilder: (context, index) {
+                      final municipality = municipalities[index];
+                      final isSelected = selectedMunicipality == municipality;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              selectedMunicipality = municipality;
+                            });
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color:
+                                  isSelected ? primary : grey.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                  color: isSelected ? primary : grey),
+                            ),
+                            child: TextWidget(
+                              text: municipality,
+                              fontSize: 14,
+                              color: isSelected ? white : black,
+                              fontFamily: isSelected ? 'Bold' : 'Regular',
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
                 const SizedBox(height: 24),
                 // Toggle between list and map view
                 Row(
@@ -1420,6 +1534,7 @@ class _LocalBusinessesAdminScreenState
 
   // Build map view to display businesses
   Widget _buildMapView() {
+    final MapController mapController = MapController();
     final businessesWithLocation = filteredBusinesses
         .where((business) =>
             business.latitude != null && business.longitude != null)
@@ -1469,6 +1584,7 @@ class _LocalBusinessesAdminScreenState
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: FlutterMap(
+          mapController: mapController,
           options: MapOptions(
             initialCenter: LatLng(avgLat, avgLon),
             initialZoom: 12.0,
@@ -1498,6 +1614,36 @@ class _LocalBusinessesAdminScreenState
                 );
               }).toList(),
             ),
+            // Add zoom controls
+            Positioned(
+              right: 10,
+              bottom: 10,
+              child: Column(
+                children: [
+                  FloatingActionButton(
+                    mini: true,
+                    onPressed: () {
+                      mapController.move(mapController.camera.center,
+                          mapController.camera.zoom + 1);
+                    },
+                    child: Icon(Icons.add),
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                  ),
+                  SizedBox(height: 5),
+                  FloatingActionButton(
+                    mini: true,
+                    onPressed: () {
+                      mapController.move(mapController.camera.center,
+                          mapController.camera.zoom - 1);
+                    },
+                    child: Icon(Icons.remove),
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -1520,7 +1666,8 @@ class _LocalBusinessesAdminScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextWidget(
-                text: '${business.category} - ${business.location}',
+                text:
+                    '${business.category} - ${business.municipality ?? ''} - ${business.location}',
                 fontSize: 14,
                 color: grey,
                 fontFamily: 'Regular',
@@ -1532,12 +1679,14 @@ class _LocalBusinessesAdminScreenState
                 color: black,
                 fontFamily: 'Regular',
               ),
-              if (business.registrationNumber != null && business.registrationNumber!.isNotEmpty)
+              if (business.registrationNumber != null &&
+                  business.registrationNumber!.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Row(
                     children: [
-                      const Icon(Icons.confirmation_number, size: 16, color: Colors.blue),
+                      const Icon(Icons.confirmation_number,
+                          size: 16, color: Colors.blue),
                       const SizedBox(width: 4),
                       TextWidget(
                         text: 'Registration: ${business.registrationNumber}',
@@ -1696,7 +1845,8 @@ class _LocalBusinessesAdminScreenState
                               size: 16, color: Colors.red),
                           const SizedBox(width: 4),
                           TextWidget(
-                            text: 'Coordinates: ${business.latitude!.toStringAsFixed(4)}, '
+                            text:
+                                'Coordinates: ${business.latitude!.toStringAsFixed(4)}, '
                                 '${business.longitude!.toStringAsFixed(4)}',
                             fontSize: 12,
                             color: grey,
@@ -1705,9 +1855,11 @@ class _LocalBusinessesAdminScreenState
                           const SizedBox(width: 8),
                           // Google Maps link
                           IconButton(
-                            icon: const Icon(Icons.map, size: 16, color: Colors.blue),
+                            icon: const Icon(Icons.map,
+                                size: 16, color: Colors.blue),
                             onPressed: () {
-                              final url = 'https://www.google.com/maps/search/?api=1&query=${business.latitude},${business.longitude}';
+                              final url =
+                                  'https://www.google.com/maps/search/?api=1&query=${business.latitude},${business.longitude}';
                               _launchURL(url);
                             },
                             padding: EdgeInsets.zero,
@@ -1817,6 +1969,7 @@ class _LocalBusinessesAdminScreenState
                 final business = Business(
                   name: row['name'] ?? '',
                   category: row['category'] ?? 'Services',
+                  municipality: row['municipality'],
                   location: row['location'] ?? '',
                   description: row['description'] ?? '',
                   phone: row['phone'],
@@ -1875,6 +2028,7 @@ class _LocalBusinessesAdminScreenState
       final headers = [
         'name',
         'category',
+        'municipality',
         'location',
         'description',
         'phone',
@@ -1896,6 +2050,7 @@ class _LocalBusinessesAdminScreenState
         rows.add([
           business.name,
           business.category,
+          business.municipality ?? '',
           business.location,
           business.description,
           business.phone ?? '',
@@ -2004,7 +2159,8 @@ class _LocalBusinessesAdminScreenState
               ),
               const SizedBox(height: 8),
               TextWidget(
-                text: '${business.category} - ${business.location}',
+                text:
+                    '${business.category} - ${business.municipality ?? ''} - ${business.location}',
                 fontSize: 14,
                 color: grey,
                 fontFamily: 'Regular',
@@ -2019,12 +2175,14 @@ class _LocalBusinessesAdminScreenState
                 align: TextAlign.left,
                 maxLines: 3,
               ),
-              if (business.registrationNumber != null && business.registrationNumber!.isNotEmpty)
+              if (business.registrationNumber != null &&
+                  business.registrationNumber!.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Row(
                     children: [
-                      const Icon(Icons.confirmation_number, size: 16, color: Colors.blue),
+                      const Icon(Icons.confirmation_number,
+                          size: 16, color: Colors.blue),
                       const SizedBox(width: 4),
                       TextWidget(
                         text: 'Reg: ${business.registrationNumber}',
@@ -2232,9 +2390,11 @@ class _LocalBusinessesAdminScreenState
                       const SizedBox(width: 8),
                       // Google Maps link
                       IconButton(
-                        icon: const Icon(Icons.map, size: 16, color: Colors.blue),
+                        icon:
+                            const Icon(Icons.map, size: 16, color: Colors.blue),
                         onPressed: () {
-                          final url = 'https://www.google.com/maps/search/?api=1&query=${business.latitude},${business.longitude}';
+                          final url =
+                              'https://www.google.com/maps/search/?api=1&query=${business.latitude},${business.longitude}';
                           _launchURL(url);
                         },
                         padding: EdgeInsets.zero,

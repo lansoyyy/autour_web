@@ -197,6 +197,19 @@ class UserManagementScreen extends StatelessWidget {
                                     fontSize: 14,
                                     radius: 8,
                                   ),
+                                  const SizedBox(width: 10),
+                                  ButtonWidget(
+                                    label: 'Delete',
+                                    onPressed: () {
+                                      _deleteUser(context, doc);
+                                    },
+                                    color: Colors.red,
+                                    textColor: white,
+                                    width: 80,
+                                    height: 35,
+                                    fontSize: 14,
+                                    radius: 8,
+                                  ),
                                 ],
                               ),
                             ),
@@ -314,6 +327,19 @@ class UserManagementScreen extends StatelessWidget {
                                         : Colors.green,
                                     textColor: white,
                                     width: 100,
+                                    height: 35,
+                                    fontSize: 14,
+                                    radius: 8,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  ButtonWidget(
+                                    label: 'Change Password',
+                                    onPressed: () {
+                                      _showChangePasswordDialog(context, doc);
+                                    },
+                                    color: Colors.blue,
+                                    textColor: white,
+                                    width: 120,
                                     height: 35,
                                     fontSize: 14,
                                     radius: 8,
@@ -793,6 +819,89 @@ class UserManagementScreen extends StatelessWidget {
       },
     );
   }
+
+  // Function to show change password dialog
+  void _showChangePasswordDialog(
+      BuildContext context, DocumentSnapshot<Map<String, dynamic>> adminDoc) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return ChangePasswordDialog(adminDoc: adminDoc);
+      },
+    );
+  }
+
+  // Function to delete a user
+  Future<void> _deleteUser(BuildContext context,
+      DocumentSnapshot<Map<String, dynamic>> userDoc) async {
+    // Show confirmation dialog
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: TextWidget(
+            text: 'Confirm Delete',
+            fontSize: 22,
+            color: primary,
+            fontFamily: 'Bold',
+          ),
+          content: TextWidget(
+            text:
+                'Are you sure you want to delete this user? This action cannot be undone.',
+            fontSize: 16,
+            color: black,
+            fontFamily: 'Regular',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(false);
+              },
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(true);
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.red,
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    // If user confirmed deletion
+    if (confirm == true) {
+      try {
+        // Delete user from Firestore
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userDoc.id)
+            .delete();
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('User deleted successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error deleting user: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
 }
 
 // Edit User Dialog Widget
@@ -1033,7 +1142,13 @@ class _AddUserDialogState extends State<AddUserDialog> {
   String _selectedRole = 'Tourism';
   bool _isLoading = false;
 
-  final List<String> _roles = ['Tourism', 'Police', 'Barangay', 'MDRRMO'];
+  final List<String> _roles = [
+    'Tourism',
+    'Police',
+    'Barangay',
+    'MDRRMO',
+    ' Business'
+  ];
 
   @override
   void dispose() {
@@ -1244,6 +1359,196 @@ class _AddUserDialogState extends State<AddUserDialog> {
                       minimumSize: const Size(120, 40),
                     ),
                     child: Text(_isLoading ? 'Adding...' : 'Add User'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Change Password Dialog Widget
+class ChangePasswordDialog extends StatefulWidget {
+  final DocumentSnapshot<Map<String, dynamic>> adminDoc;
+
+  const ChangePasswordDialog({super.key, required this.adminDoc});
+
+  @override
+  State<ChangePasswordDialog> createState() => _ChangePasswordDialogState();
+}
+
+class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _newPasswordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  bool _isLoading = false;
+  bool _obscureNewPassword = true;
+  bool _obscureConfirmPassword = true;
+
+  @override
+  void dispose() {
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submitForm() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Update admin password in Firestore
+      await FirebaseFirestore.instance
+          .collection('admins')
+          .doc(widget.adminDoc.id)
+          .update({
+        'password': _newPasswordController.text.trim(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Password changed successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error changing password: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final adminData = widget.adminDoc.data()!;
+    final adminName = adminData['fullName'] ?? 'Admin User';
+
+    return AlertDialog(
+      title: TextWidget(
+        text: 'Change Password',
+        fontSize: 22,
+        color: primary,
+        fontFamily: 'Bold',
+      ),
+      content: SizedBox(
+        width: 400,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextWidget(
+                text: 'Changing password for: $adminName',
+                fontSize: 16,
+                color: grey,
+                fontFamily: 'Regular',
+              ),
+              const SizedBox(height: 20),
+              // New Password Field
+              TextFormField(
+                controller: _newPasswordController,
+                decoration: InputDecoration(
+                  labelText: 'New Password',
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscureNewPassword
+                          ? Icons.visibility
+                          : Icons.visibility_off,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _obscureNewPassword = !_obscureNewPassword;
+                      });
+                    },
+                  ),
+                ),
+                obscureText: _obscureNewPassword,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter a new password';
+                  }
+                  if (value.length < 6) {
+                    return 'Password must be at least 6 characters';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              // Confirm Password Field
+              TextFormField(
+                controller: _confirmPasswordController,
+                decoration: InputDecoration(
+                  labelText: 'Confirm New Password',
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscureConfirmPassword
+                          ? Icons.visibility
+                          : Icons.visibility_off,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _obscureConfirmPassword = !_obscureConfirmPassword;
+                      });
+                    },
+                  ),
+                ),
+                obscureText: _obscureConfirmPassword,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please confirm your new password';
+                  }
+                  if (value != _newPasswordController.text) {
+                    return 'Passwords do not match';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 20),
+              // Action Buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 10),
+                  ElevatedButton(
+                    onPressed: _isLoading ? null : () => _submitForm(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primary,
+                      foregroundColor: white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      minimumSize: const Size(120, 40),
+                    ),
+                    child: Text(_isLoading ? 'Changing...' : 'Change Password'),
                   ),
                 ],
               ),

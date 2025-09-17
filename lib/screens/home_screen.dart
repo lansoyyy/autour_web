@@ -703,7 +703,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       visible: widget.accountType == 'Super Admin' ||
                           widget.accountType == 'Admin' ||
                           widget.accountType == 'Tourism' ||
-                          widget.accountType == 'Barangay',
+                          widget.accountType == 'Barangay' ||
+                          widget.accountType == 'Business',
                       child: _buildFeatureCard(
                         context,
                         icon: Icons.store,

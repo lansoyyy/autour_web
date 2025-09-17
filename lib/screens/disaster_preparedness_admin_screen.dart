@@ -728,7 +728,7 @@ class _DisasterPreparednessAdminScreenState
   // --- Interactive Map Integration: Users on Map ---
   Widget _buildInteractiveUserMapCard() {
     return Container(
-      height: 320,
+      height: 500,
       width: double.infinity,
       decoration: BoxDecoration(
         color: Colors.grey[200],
@@ -928,6 +928,40 @@ class _DisasterPreparednessAdminScreenState
             return Stack(
               children: [
                 mapWidget,
+                // Add zoom controls
+                Positioned(
+                  right: 10,
+                  bottom: 10,
+                  child: Column(
+                    children: [
+                      FloatingActionButton(
+                        mini: true,
+                        onPressed: () {
+                          _mapController?.move(
+                              _mapController?.camera.center ??
+                                  latlng.LatLng(c.auroraLat, c.auroraLon),
+                              (_mapController?.camera.zoom ?? 11) + 1);
+                        },
+                        child: Icon(Icons.add),
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black,
+                      ),
+                      SizedBox(height: 5),
+                      FloatingActionButton(
+                        mini: true,
+                        onPressed: () {
+                          _mapController?.move(
+                              _mapController?.camera.center ??
+                                  latlng.LatLng(c.auroraLat, c.auroraLon),
+                              (_mapController?.camera.zoom ?? 11) - 1);
+                        },
+                        child: Icon(Icons.remove),
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black,
+                      ),
+                    ],
+                  ),
+                ),
               ],
             );
           },
@@ -1302,7 +1336,7 @@ class _DisasterPreparednessAdminScreenState
       });
 
       // Update location in weather data
-      _updateLocationInWeatherData();
+      await _updateLocationInWeatherData();
 
       // Fetch weather for new location
       _fetchWeather();
@@ -1322,13 +1356,64 @@ class _DisasterPreparednessAdminScreenState
   }
 
   // Update location in weather data
-  void _updateLocationInWeatherData() {
-    // In a real implementation, you would reverse geocode the coordinates to get the location name
-    // For now, we'll just use the coordinates
-    setState(() {
-      weatherData['location'] =
-          '${_currentLocation.latitude.toStringAsFixed(4)}, ${_currentLocation.longitude.toStringAsFixed(4)}';
-    });
+  Future<void> _updateLocationInWeatherData() async {
+    try {
+      // Try to get a human-readable location name using reverse geocoding
+      final uri = Uri.parse(
+          'https://nominatim.openstreetmap.org/reverse?format=json&lat=${_currentLocation.latitude}&lon=${_currentLocation.longitude}');
+
+      final response = await http.get(uri, headers: {
+        'User-Agent': 'autour_web',
+      });
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        String locationName = 'Current Location';
+
+        if (data.containsKey('address')) {
+          final address = data['address'] as Map<String, dynamic>;
+
+          // Try to build a meaningful location name
+          List<String> locationParts = [];
+
+          if (address.containsKey('city') ||
+              address.containsKey('town') ||
+              address.containsKey('village')) {
+            locationParts
+                .add(address['city'] ?? address['town'] ?? address['village']);
+          }
+
+          if (address.containsKey('state') || address.containsKey('province')) {
+            locationParts.add(address['state'] ?? address['province']);
+          }
+
+          if (address.containsKey('country')) {
+            locationParts.add(address['country']);
+          }
+
+          if (locationParts.isNotEmpty) {
+            locationName = locationParts.join(', ');
+          }
+        }
+
+        setState(() {
+          weatherData['location'] = locationName;
+        });
+      } else {
+        // If reverse geocoding fails, use coordinates
+        setState(() {
+          weatherData['location'] =
+              '${_currentLocation.latitude.toStringAsFixed(4)}, ${_currentLocation.longitude.toStringAsFixed(4)}';
+        });
+      }
+    } catch (e) {
+      print('Error in reverse geocoding: $e');
+      // If there's an error, use coordinates
+      setState(() {
+        weatherData['location'] =
+            '${_currentLocation.latitude.toStringAsFixed(4)}, ${_currentLocation.longitude.toStringAsFixed(4)}';
+      });
+    }
   }
 
   @override
@@ -2147,7 +2232,124 @@ class _DisasterPreparednessAdminScreenState
               const SizedBox(height: 16),
               _buildInteractiveUserMapCard(),
               const SizedBox(height: 32),
+              // AI Weather Insights section (keep existing)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.04),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.psychology, color: primary, size: 24),
+                        const SizedBox(width: 8),
+                        TextWidget(
+                          text: 'AI Weather Insights',
+                          fontSize: 22,
+                          color: black,
+                          fontFamily: 'Bold',
+                        ),
+                        const Spacer(),
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('Add Suggestion'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: secondary,
+                            foregroundColor: black,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 18, vertical: 12),
+                            textStyle: const TextStyle(
+                                fontSize: 15, fontWeight: FontWeight.bold),
+                          ),
+                          onPressed: () => _showEditAISuggestionDialog(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    TextWidget(
+                      text:
+                          'Personalized recommendations based on current weather conditions',
+                      fontSize: 14,
+                      color: grey,
+                      fontFamily: 'Regular',
+                    ),
+                    const SizedBox(height: 18),
+                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: FirebaseFirestore.instance
+                          .collection('ai_suggestions')
+                          .where('region', isEqualTo: c.auroraLocationLabel)
+                          .orderBy('createdAt', descending: true)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(
+                              child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          print(snapshot.error);
+                          return Center(
+                            child: TextWidget(
+                              text: 'Failed to load suggestions',
+                              fontSize: 14,
+                              color: Colors.red,
+                              fontFamily: 'Regular',
+                            ),
+                          );
+                        }
+                        final docs = snapshot.data?.docs ?? [];
+                        if (docs.isEmpty) {
+                          return Center(
+                            child: TextWidget(
+                              text: 'No AI suggestions found.',
+                              fontSize: 18,
+                              color: grey,
+                              fontFamily: 'Regular',
+                            ),
+                          );
+                        }
+                        final items = docs
+                            .map((d) {
+                              final data = d.data();
+                              final iconName =
+                                  (data['icon'] ?? 'cloud').toString();
+                              final colorName =
+                                  (data['color'] ?? 'blue').toString();
+                              return {
+                                'id': d.id,
+                                'title': data['title'] ?? '',
+                                'message': data['message'] ?? '',
+                                'priority': data['priority'] ?? 'medium',
+                                'icon': _resolveIcon(iconName),
+                                'color': _resolveColor(colorName),
+                                'iconName': iconName,
+                                'colorName': colorName,
+                              };
+                            })
+                            .toList()
+                            .asMap()
+                            .entries
+                            .map((e) =>
+                                _buildAISuggestionCard(e.value, e.key, true))
+                            .toList();
+                        return Wrap(
+                          spacing: 24,
+                          runSpacing: 24,
+                          children: items,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
 
+              const SizedBox(height: 32),
               // Emergency Alerts
               TextWidget(
                 text: 'Emergency Alerts',
@@ -2252,6 +2454,162 @@ class _DisasterPreparednessAdminScreenState
     );
   }
 
+  IconData _resolveIcon(String name) {
+    switch (name) {
+      case 'cloud':
+        return Icons.cloud;
+      case 'wb_sunny':
+        return Icons.wb_sunny;
+      case 'beach_access':
+        return Icons.beach_access;
+      case 'health_and_safety':
+        return Icons.health_and_safety;
+      case 'warning':
+        return Icons.warning;
+      case 'tips':
+        return Icons.tips_and_updates;
+      default:
+        return Icons.info_outline;
+    }
+  }
+
+  Color _resolveColor(String name) {
+    switch (name) {
+      case 'red':
+        return Colors.red;
+      case 'orange':
+        return Colors.orange;
+      case 'green':
+        return Colors.green;
+      case 'teal':
+        return Colors.teal;
+      case 'blue':
+        return Colors.blue;
+      default:
+        return primary;
+    }
+  }
+
+  String _colorNameForPriority(String p) {
+    switch (p) {
+      case 'high':
+        return 'red';
+      case 'medium':
+        return 'orange';
+      default:
+        return 'green';
+    }
+  }
+
+  String _iconNameForPriority(String p) {
+    switch (p) {
+      case 'high':
+        return 'warning';
+      case 'medium':
+        return 'cloud';
+      default:
+        return 'beach_access';
+    }
+  }
+
+  Widget _buildAISuggestionCard(
+      Map<String, dynamic> suggestion, int index, bool isWide) {
+    Color priorityColor;
+    switch (suggestion['priority']) {
+      case 'high':
+        priorityColor = Colors.red;
+        break;
+      case 'medium':
+        priorityColor = Colors.orange;
+        break;
+      default:
+        priorityColor = Colors.green;
+    }
+
+    return SizedBox(
+      width: isWide ? 350 : double.infinity,
+      child: Card(
+        elevation: 3,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: suggestion['color'].withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(25),
+                ),
+                child: Icon(
+                  suggestion['icon'],
+                  color: suggestion['color'],
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        TextWidget(
+                          text: suggestion['title'],
+                          fontSize: 16,
+                          color: black,
+                          fontFamily: 'Bold',
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: priorityColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: TextWidget(
+                            text:
+                                suggestion['priority'].toString().toUpperCase(),
+                            fontSize: 10,
+                            color: priorityColor,
+                            fontFamily: 'Bold',
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.edit, size: 18),
+                          color: primary,
+                          onPressed: () => _showEditAISuggestionDialog(
+                              suggestion: suggestion,
+                              docId: suggestion['id'] as String?),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete, size: 18),
+                          color: Colors.red,
+                          onPressed: () =>
+                              _deleteAISuggestion(suggestion['id'] as String),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    TextWidget(
+                      text: suggestion['message'],
+                      fontSize: 14,
+                      color: grey,
+                      fontFamily: 'Regular',
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // Build weather detail widget
   Widget _buildWeatherDetail(String label, String value, IconData icon) {
     return Expanded(
@@ -2279,6 +2637,144 @@ class _DisasterPreparednessAdminScreenState
         ],
       ),
     );
+  }
+
+  void _showEditAISuggestionDialog(
+      {Map<String, dynamic>? suggestion, String? docId}) {
+    final titleController =
+        TextEditingController(text: suggestion?['title'] ?? '');
+    final messageController =
+        TextEditingController(text: suggestion?['message'] ?? '');
+    String priority = suggestion?['priority'] ?? 'medium';
+    // icon/color derived from priority on save
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: TextWidget(
+          text: suggestion == null ? 'Add AI Suggestion' : 'Edit AI Suggestion',
+          fontSize: 20,
+          color: primary,
+          fontFamily: 'Bold',
+        ),
+        content: SizedBox(
+          width: 400,
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  decoration: const InputDecoration(labelText: 'Title'),
+                ),
+                TextField(
+                  controller: messageController,
+                  decoration: const InputDecoration(labelText: 'Message'),
+                  maxLines: 2,
+                ),
+                DropdownButtonFormField<String>(
+                  value: priority,
+                  items: [
+                    DropdownMenuItem(value: 'high', child: Text('High')),
+                    DropdownMenuItem(value: 'medium', child: Text('Medium')),
+                    DropdownMenuItem(value: 'low', child: Text('Low')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setState(() => priority = val);
+                  },
+                  decoration: const InputDecoration(labelText: 'Priority'),
+                ),
+                // For demo, icon and color are not editable
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: TextWidget(
+              text: 'Cancel',
+              fontSize: 14,
+              color: grey,
+              fontFamily: 'Regular',
+            ),
+          ),
+          ButtonWidget(
+            label: suggestion == null ? 'Add' : 'Update',
+            onPressed: () async {
+              if (formKey.currentState == null ||
+                  !formKey.currentState!.validate()) return;
+              final iconName = _iconNameForPriority(priority);
+              final colorName = _colorNameForPriority(priority);
+              final payload = {
+                'title': titleController.text,
+                'message': messageController.text,
+                'priority': priority,
+                'icon': iconName,
+                'color': colorName,
+                'region': c.auroraLocationLabel,
+                'updatedAt': FieldValue.serverTimestamp(),
+              };
+              try {
+                final col =
+                    FirebaseFirestore.instance.collection('ai_suggestions');
+                if (docId == null) {
+                  await col.add({
+                    ...payload,
+                    'createdAt': FieldValue.serverTimestamp(),
+                  });
+                } else {
+                  await col.doc(docId).set(payload, SetOptions(merge: true));
+                }
+              } catch (_) {
+                // surface minimal error to user
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: TextWidget(
+                      text: 'Failed to save suggestion',
+                      fontSize: 14,
+                      color: white,
+                    ),
+                    backgroundColor: Colors.red,
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+              if (context.mounted) Navigator.pop(context);
+            },
+            color: primary,
+            textColor: white,
+            width: 100,
+            height: 45,
+            fontSize: 16,
+            radius: 10,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteAISuggestion(String docId) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('ai_suggestions')
+          .doc(docId)
+          .delete();
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: TextWidget(
+            text: 'Failed to delete suggestion',
+            fontSize: 14,
+            color: white,
+          ),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 }
 
