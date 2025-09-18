@@ -51,88 +51,20 @@ class _TravelPlannerAdminScreenState extends State<TravelPlannerAdminScreen>
   List<String> _selectedActCategories = [];
   List<String> _selectedTipCategories = [];
 
-  // Predefined categories
-  final List<String> _destinationCategories = [
-    'Beaches',
-    'Hiking',
-    'Eco-Tourism',
-    'Viewpoints',
-    'Food',
-    'Waterfalls',
-    'Snorkeling',
-    'Swimming',
-    'Sunrise',
-    'Peaceful',
-    'History',
-    'Culture',
-    'Architecture',
-    'Adventure',
-    'Caving',
-    'Nature',
-    'Photography',
-    'Local Businesses',
-    'Walking',
-    'Shopping'
-  ];
+  // Firestore collections
+  late final CollectionReference _categoriesRef =
+      _firestore.collection('categories');
 
-  final List<String> _activityCategories = [
-    'Surfing',
-    'Lessons',
-    'Water Sports',
-    'Hiking',
-    'Waterfalls',
-    'Adventure',
-    'Viewpoints',
-    'Caving',
-    'Snorkeling',
-    'Nature',
-    'Food',
-    'Eco-Tourism',
-    'Local Businesses',
-    'History',
-    'Culture',
-    'Walking',
-    'Photography',
-    'Sunrise',
-    'Shopping',
-    'Transportation'
-  ];
-
-  final List<String> _tipCategories = [
-    'Planning',
-    'Weather',
-    'Seasons',
-    'Transportation',
-    'Getting Around',
-    'Mobility',
-    'Safety',
-    'Permits',
-    'Guides',
-    'Packing',
-    'Essentials',
-    'Preparation',
-    'Culture',
-    'Etiquette',
-    'Respect',
-    'Emergency',
-    'Contacts',
-    'Eco-Tourism',
-    'Sustainability',
-    'Environment',
-    'Technology',
-    'Connectivity',
-    'Money',
-    'Payments',
-    'Finance',
-    'Health',
-    'Safety',
-    'Preparation'
-  ];
+  // Dynamic categories from Firestore
+  List<String> _destinationCategories = [];
+  List<String> _activityCategories = [];
+  List<String> _tipCategories = [];
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
+    _setupCategoriesListener();
   }
 
   @override
@@ -384,6 +316,68 @@ class _TravelPlannerAdminScreenState extends State<TravelPlannerAdminScreen>
     });
   }
 
+  // Setup listener for categories from Firestore
+  void _setupCategoriesListener() {
+    _categoriesRef.snapshots().listen((snapshot) {
+      setState(() {
+        _destinationCategories.clear();
+        _activityCategories.clear();
+        _tipCategories.clear();
+
+        for (var doc in snapshot.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final type = data['type'] as String?;
+          final name = data['name'] as String?;
+
+          if (type != null && name != null) {
+            switch (type) {
+              case 'destination':
+                _destinationCategories.add(name);
+                break;
+              case 'activity':
+                _activityCategories.add(name);
+                break;
+              case 'tip':
+                _tipCategories.add(name);
+                break;
+            }
+          }
+        }
+      });
+    });
+  }
+
+  // Methods to manage categories
+  Future<void> _addCategory(String type, String name) async {
+    try {
+      await _categoriesRef.add({
+        'type': type,
+        'name': name,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Category added successfully')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error adding category: $e')),
+      );
+    }
+  }
+
+  Future<void> _deleteCategory(String id) async {
+    try {
+      await _categoriesRef.doc(id).delete();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Category deleted successfully')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error deleting category: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isWide = MediaQuery.of(context).size.width > 900;
@@ -407,6 +401,7 @@ class _TravelPlannerAdminScreenState extends State<TravelPlannerAdminScreen>
             Tab(text: 'Destinations'),
             Tab(text: 'Activities'),
             Tab(text: 'Travel Tips'),
+            Tab(text: 'Categories'),
           ],
         ),
       ),
@@ -419,6 +414,8 @@ class _TravelPlannerAdminScreenState extends State<TravelPlannerAdminScreen>
           _buildActivitiesTab(isWide),
           // Travel Tips Tab
           _buildTipsTab(isWide),
+          // Categories Tab
+          _buildCategoriesTab(isWide),
         ],
       ),
     );
@@ -793,6 +790,78 @@ class _TravelPlannerAdminScreenState extends State<TravelPlannerAdminScreen>
     );
   }
 
+  Widget _buildCategoriesTab(bool isWide) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _categoriesRef.snapshots(),
+      builder: (context, snapshot) {
+        final categories = snapshot.data?.docs ?? [];
+
+        return ListView(
+          padding: const EdgeInsets.all(40),
+          children: [
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextWidget(
+                      text: 'Categories Management',
+                      fontSize: 28,
+                      color: primary,
+                      fontFamily: 'Bold',
+                      align: TextAlign.left,
+                    ),
+                    const SizedBox(height: 10),
+                    TextWidget(
+                      text:
+                          'Create and manage categories for destinations, activities, and travel tips',
+                      fontSize: 16,
+                      color: black,
+                      fontFamily: 'Regular',
+                      align: TextAlign.left,
+                    ),
+                    const SizedBox(height: 30),
+                    // Summary cards
+                    SizedBox(
+                      height: 100,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          _buildSummaryCard('Total Categories',
+                              categories.length.toString(), primary),
+                          _buildSummaryCard(
+                              'Destination Categories',
+                              _destinationCategories.length.toString(),
+                              secondary),
+                          _buildSummaryCard(
+                              'Activity Categories',
+                              _activityCategories.length.toString(),
+                              Colors.green),
+                          _buildSummaryCard('Tip Categories',
+                              _tipCategories.length.toString(), Colors.orange),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 30),
+                    // Add Category Form
+                    _buildAddCategoryForm(isWide),
+                    const SizedBox(height: 40),
+                    // Categories List
+                    _buildCategoriesList(isWide, categories),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   // Form builders
   Widget _buildAddDestinationForm(bool isWide) {
     return Container(
@@ -1135,6 +1204,105 @@ class _TravelPlannerAdminScreenState extends State<TravelPlannerAdminScreen>
     );
   }
 
+  Widget _buildAddCategoryForm(bool isWide) {
+    // Controllers for category form
+    final TextEditingController _categoryNameController =
+        TextEditingController();
+    String _selectedType = 'destination';
+
+    return StatefulBuilder(
+      builder: (context, setState) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: secondary.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextWidget(
+                text: 'Add New Category',
+                fontSize: 22,
+                color: black,
+                fontFamily: 'Bold',
+                align: TextAlign.left,
+              ),
+              const SizedBox(height: 20),
+              _buildTextField(
+                controller: _categoryNameController,
+                label: 'Category Name *',
+                hint: 'Enter category name',
+              ),
+              const SizedBox(height: 16),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Category Type *',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: _selectedType,
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'destination',
+                        child: Text('Destination'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'activity',
+                        child: Text('Activity'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'tip',
+                        child: Text('Travel Tip'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          _selectedType = value;
+                        });
+                      }
+                    },
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ButtonWidget(
+                  label: 'Add Category',
+                  onPressed: () {
+                    if (_categoryNameController.text.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text('Please enter a category name')),
+                      );
+                      return;
+                    }
+
+                    _addCategory(_selectedType, _categoryNameController.text);
+                    _categoryNameController.clear();
+                  },
+                  width: 180,
+                  height: 50,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   // List builders
   Widget _buildDestinationsList(
       bool isWide, List<QueryDocumentSnapshot<Object?>> destinations) {
@@ -1320,6 +1488,63 @@ class _TravelPlannerAdminScreenState extends State<TravelPlannerAdminScreen>
                           icon: const Icon(Icons.delete, color: Colors.red),
                           onPressed: () {
                             _confirmDeleteTip(tip.id);
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ]);
+              }).toList(),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildCategoriesList(
+      bool isWide, List<QueryDocumentSnapshot<Object?>> categories) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextWidget(
+          text: 'Existing Categories',
+          fontSize: 22,
+          color: black,
+          fontFamily: 'Bold',
+          align: TextAlign.left,
+        ),
+        const SizedBox(height: 20),
+        if (categories.isEmpty)
+          const Center(
+            child: Text('No categories found'),
+          )
+        else
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              columns: const [
+                DataColumn(label: Text('Name')),
+                DataColumn(label: Text('Type')),
+                DataColumn(label: Text('Actions')),
+              ],
+              rows: categories.map((category) {
+                final data = category.data() as Map<String, dynamic>;
+                return DataRow(cells: [
+                  DataCell(Text(data['name']?.toString() ?? '')),
+                  DataCell(Text(
+                    data['type']?.toString() == 'destination'
+                        ? 'Destination'
+                        : data['type']?.toString() == 'activity'
+                            ? 'Activity'
+                            : 'Travel Tip',
+                  )),
+                  DataCell(
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          onPressed: () {
+                            _confirmDeleteCategory(category.id);
                           },
                         ),
                       ],
@@ -1851,6 +2076,34 @@ class _TravelPlannerAdminScreenState extends State<TravelPlannerAdminScreen>
             label: 'Delete',
             onPressed: () {
               _deleteTip(id);
+              Navigator.pop(dialogContext);
+            },
+            color: Colors.red,
+            width: 100,
+            height: 40,
+            fontSize: 14,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteCategory(String id) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete Category'),
+        content: const Text(
+            'Are you sure you want to delete this category? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ButtonWidget(
+            label: 'Delete',
+            onPressed: () {
+              _deleteCategory(id);
               Navigator.pop(dialogContext);
             },
             color: Colors.red,

@@ -152,8 +152,19 @@ class _HealthSurveillanceAdminScreenState
             dateStr = createdAt.toString();
           }
 
+          // Check if the declaration is archived
+          final bool isArchived = data['isArchived'] ?? false;
+          String archivedDateStr = '';
+          if (isArchived) {
+            final archivedAt = data['archivedAt'];
+            if (archivedAt is Timestamp) {
+              archivedDateStr =
+                  archivedAt.toDate().toIso8601String().split('T').first;
+            }
+          }
+
           return {
-            'id': d.id, // Add document ID for deletion
+            'id': d.id, // Add document ID for archiving
             'name': name,
             'userId': userId,
             'temperature': temperature,
@@ -161,6 +172,8 @@ class _HealthSurveillanceAdminScreenState
             'exposure': exposure,
             'vaccination': vaccination,
             'date': dateStr,
+            'isArchived': isArchived,
+            'archivedDate': archivedDateStr,
           };
         }).toList();
       });
@@ -306,6 +319,7 @@ class _HealthSurveillanceAdminScreenState
                       DataColumn(label: Text('Symptoms')),
                       DataColumn(label: Text('Exposure')),
                       DataColumn(label: Text('Vaccination')),
+                      DataColumn(label: Text('Status')),
                       DataColumn(label: Text('Actions')),
                     ],
                     rows: filteredDeclarations.map((d) {
@@ -352,6 +366,32 @@ class _HealthSurveillanceAdminScreenState
                         DataCell(Text(d['symptoms'])),
                         DataCell(Text(d['exposure'])),
                         DataCell(Text(d['vaccination'])),
+                        DataCell(
+                          d['isArchived'] == true
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.archive,
+                                        color: Colors.orange, size: 16),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Archived',
+                                      style: TextStyle(
+                                        color: Colors.orange,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : const Text(
+                                  'Active',
+                                  style: TextStyle(
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                        ),
                         DataCell(Row(
                           children: [
                             IconButton(
@@ -361,12 +401,14 @@ class _HealthSurveillanceAdminScreenState
                                 _showDeclarationDetails(d);
                               },
                             ),
-                            IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () {
-                                _deleteDeclaration(d['id']);
-                              },
-                            ),
+                            if (d['isArchived'] != true)
+                              IconButton(
+                                icon: const Icon(Icons.archive,
+                                    color: Colors.orange),
+                                onPressed: () {
+                                  _archiveDeclaration(d['id']);
+                                },
+                              ),
                           ],
                         )),
                       ]);
@@ -406,6 +448,10 @@ class _HealthSurveillanceAdminScreenState
               _buildDetailRow('Symptoms', d['symptoms']),
               _buildDetailRow('Exposure', d['exposure']),
               _buildDetailRow('Vaccination', d['vaccination']),
+              _buildDetailRow(
+                  'Status', d['isArchived'] == true ? 'Archived' : 'Active'),
+              if (d['isArchived'] == true && d['archivedDate'].isNotEmpty)
+                _buildDetailRow('Archived Date', d['archivedDate']),
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -629,14 +675,14 @@ class _HealthSurveillanceAdminScreenState
     );
   }
 
-  // Delete a health declaration
-  void _deleteDeclaration(String documentId) {
+  // Archive a health declaration
+  void _archiveDeclaration(String documentId) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Declaration'),
-        content:
-            const Text('Are you sure you want to delete this declaration?'),
+        title: const Text('Archive Declaration'),
+        content: const Text(
+            'Are you sure you want to archive this declaration? It will still be viewable in the table.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -645,30 +691,48 @@ class _HealthSurveillanceAdminScreenState
           ElevatedButton(
             onPressed: () async {
               try {
-                // For collection group queries, we need to find the document reference
-                // We'll query for the document with the specific ID
-                final querySnapshot = await _db
-                    .collectionGroup(collectionName)
-                    .where(FieldPath.documentId, isEqualTo: documentId)
-                    .limit(1)
-                    .get();
-                if (querySnapshot.docs.isNotEmpty) {
-                  await querySnapshot.docs.first.reference.delete();
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text('Declaration deleted successfully')),
-                  );
+                // Find the document in the declarations list
+                final declaration = declarations.firstWhere(
+                  (d) => d['id'] == documentId,
+                  orElse: () => <String, Object>{},
+                );
+
+                if (declaration.isNotEmpty) {
+                  // Try to get the document reference from the collection group
+                  // We need to find the actual document path
+                  final querySnapshot = await _db
+                      .collectionGroup(collectionName)
+                      .where('name', isEqualTo: declaration['name'])
+                      .where('temperature',
+                          isEqualTo: declaration['temperature'])
+                      .limit(1)
+                      .get();
+
+                  if (querySnapshot.docs.isNotEmpty) {
+                    // Update the document to mark it as archived instead of deleting it
+                    await querySnapshot.docs.first.reference.update({
+                      'isArchived': true,
+                      'archivedAt': FieldValue.serverTimestamp(),
+                    });
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text('Declaration archived successfully')),
+                    );
+                  } else {
+                    throw Exception('Document not found');
+                  }
                 } else {
-                  throw Exception('Document not found');
+                  throw Exception('Declaration not found in local list');
                 }
               } catch (e) {
+                print(e);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error deleting declaration: $e')),
+                  SnackBar(content: Text('Error archiving declaration: $e')),
                 );
               }
             },
-            child: const Text('Delete'),
+            child: const Text('Archive'),
           ),
         ],
       ),
@@ -678,7 +742,16 @@ class _HealthSurveillanceAdminScreenState
   // Export data to CSV
   void _exportToCSV() {
     final csvData = <List<String>>[
-      ['Name', 'Date', 'Temperature', 'Symptoms', 'Exposure', 'Vaccination'],
+      [
+        'Name',
+        'Date',
+        'Temperature',
+        'Symptoms',
+        'Exposure',
+        'Vaccination',
+        'Status',
+        'Archived Date'
+      ],
     ];
 
     for (var declaration in filteredDeclarations) {
@@ -689,6 +762,8 @@ class _HealthSurveillanceAdminScreenState
         declaration['symptoms']?.toString() ?? '',
         declaration['exposure']?.toString() ?? '',
         declaration['vaccination']?.toString() ?? '',
+        declaration['isArchived'] == true ? 'Archived' : 'Active',
+        declaration['archivedDate']?.toString() ?? '',
       ]);
     }
 

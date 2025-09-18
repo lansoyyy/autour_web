@@ -20,46 +20,25 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   late final CollectionReference dialectsRef =
       _db.collection('common_dialects');
+  late final CollectionReference townsRef = _db.collection('towns');
+  late final CollectionReference touristSpotsRef =
+      _db.collection('tourist_spots');
   List<String> _dialectIds = [];
 
   // Sorting options
   String sortBy = 'createdAt';
   bool sortAscending = false;
 
-  final List<String> towns = [
-    'All',
-    'Baler',
-    'Dingalan',
-    'Maria Aurora',
-    'San Luis',
-    'Dipaculao',
-    'Dinalungan',
-    'Casiguran',
-    'Dilasag',
-  ];
-
-  // Map of towns to their notable tourist spots for reference
-  final Map<String, List<String>> townTouristSpots = {
-    'Baler': [
-      'Sabang Beach',
-      'Dicasalarin Cove',
-      'Ditumabo Falls',
-      'Baler Museum'
-    ],
-    'Dingalan': ['Dingalan Bay', 'White Beach', 'Lamao Falls'],
-    'Maria Aurora': ['Millenium Tree', 'Balete Park'],
-    'San Luis': ['Cunayan Falls', 'Dinadiawan Beach'],
-    'Dipaculao': ['Ampere Beach', 'Dibutunan Beach', 'Borlongan Falls'],
-    'Dinalungan': ['Dibut Bay', 'Hidden Beach'],
-    'Casiguran': ['Casapsapan Beach', 'Dalugan Bay'],
-    'Dilasag': ['Dilasag Beach', 'Dilasag Falls'],
-  };
+  // Towns and tourist spots from Firestore
+  List<String> towns = ['All'];
+  Map<String, List<String>> townTouristSpots = {};
   List<Map<String, dynamic>> dialectEntries = [];
 
   @override
   void initState() {
     super.initState();
     _setupFirestoreListener();
+    _setupTownsAndTouristSpotsListener();
   }
 
   void _setupFirestoreListener() {
@@ -97,6 +76,341 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
   Future<void> _deleteDialectAt(int index) async {
     if (index < 0 || index >= _dialectIds.length) return;
     await dialectsRef.doc(_dialectIds[index]).delete();
+  }
+
+  void _setupTownsAndTouristSpotsListener() {
+    // Set up listener for towns
+    townsRef.orderBy('name').snapshots().listen((snapshot) {
+      setState(() {
+        towns = ['All'];
+        for (var doc in snapshot.docs) {
+          towns.add(doc['name'].toString());
+        }
+      });
+    });
+
+    // Set up listener for tourist spots
+    touristSpotsRef.orderBy('name').snapshots().listen((snapshot) {
+      setState(() {
+        townTouristSpots = {};
+        for (var doc in snapshot.docs) {
+          final townName = doc['town'].toString();
+          final spotName = doc['name'].toString();
+
+          if (!townTouristSpots.containsKey(townName)) {
+            townTouristSpots[townName] = [];
+          }
+          townTouristSpots[townName]!.add(spotName);
+        }
+      });
+    });
+  }
+
+  Future<void> _addTown(String name) async {
+    await townsRef.add({
+      'name': name,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _deleteTown(String name) async {
+    // Find the town document
+    final querySnapshot = await townsRef.where('name', isEqualTo: name).get();
+    if (querySnapshot.docs.isNotEmpty) {
+      // Delete the town
+      await querySnapshot.docs.first.reference.delete();
+
+      // Also delete all tourist spots associated with this town
+      final spotsQuery =
+          await touristSpotsRef.where('town', isEqualTo: name).get();
+      for (var doc in spotsQuery.docs) {
+        await doc.reference.delete();
+      }
+    }
+  }
+
+  Future<void> _addTouristSpot(String town, String name) async {
+    await touristSpotsRef.add({
+      'town': town,
+      'name': name,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _deleteTouristSpot(String town, String name) async {
+    // Find the tourist spot document
+    final querySnapshot = await touristSpotsRef
+        .where('town', isEqualTo: town)
+        .where('name', isEqualTo: name)
+        .get();
+    if (querySnapshot.docs.isNotEmpty) {
+      await querySnapshot.docs.first.reference.delete();
+    }
+  }
+
+  void _showManageTownsDialog() {
+    final newTownController = TextEditingController();
+    List<String> currentTowns = List.from(towns)..remove('All');
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: TextWidget(
+              text: 'Manage Towns',
+              fontSize: 20,
+              color: primary,
+              fontFamily: 'Bold',
+            ),
+            content: SizedBox(
+              width: 400,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: newTownController,
+                          decoration: const InputDecoration(
+                            labelText: 'New Town Name',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.add, color: primary),
+                        onPressed: () async {
+                          if (newTownController.text.isNotEmpty) {
+                            try {
+                              await _addTown(newTownController.text);
+                              newTownController.clear();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Town added successfully')),
+                              );
+                            } catch (e) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                    content: Text('Error adding town: $e')),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  TextWidget(
+                    text: 'Existing Towns',
+                    fontSize: 16,
+                    color: black,
+                    fontFamily: 'Medium',
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: currentTowns.length,
+                      itemBuilder: (context, index) {
+                        final town = currentTowns[index];
+                        return Card(
+                          child: ListTile(
+                            title: Text(town),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () async {
+                                try {
+                                  await _deleteTown(town);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                        content:
+                                            Text('$town deleted successfully')),
+                                  );
+                                } catch (e) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                        content:
+                                            Text('Error deleting town: $e')),
+                                  );
+                                }
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: TextWidget(
+                  text: 'Close',
+                  fontSize: 14,
+                  color: grey,
+                  fontFamily: 'Regular',
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showManageTouristSpotsDialog() {
+    final newSpotController = TextEditingController();
+    String selectedTownForSpot =
+        towns.isNotEmpty && towns.length > 1 ? towns[1] : 'Baler';
+    List<Map<String, dynamic>> currentSpots = [];
+
+    // Build list of all tourist spots
+    for (var town in townTouristSpots.keys) {
+      for (var spot in townTouristSpots[town]!) {
+        currentSpots.add({'town': town, 'name': spot});
+      }
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: TextWidget(
+              text: 'Manage Tourist Spots',
+              fontSize: 20,
+              color: primary,
+              fontFamily: 'Bold',
+            ),
+            content: SizedBox(
+              width: 500,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: selectedTownForSpot,
+                    items: towns
+                        .where((t) => t != 'All')
+                        .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setState(() {
+                          selectedTownForSpot = val;
+                        });
+                      }
+                    },
+                    decoration: const InputDecoration(labelText: 'Town'),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: newSpotController,
+                          decoration: const InputDecoration(
+                            labelText: 'New Tourist Spot Name',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.add, color: primary),
+                        onPressed: () async {
+                          if (newSpotController.text.isNotEmpty &&
+                              selectedTownForSpot.isNotEmpty) {
+                            try {
+                              await _addTouristSpot(
+                                  selectedTownForSpot, newSpotController.text);
+                              newSpotController.clear();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text(
+                                        'Tourist spot added successfully')),
+                              );
+                            } catch (e) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                    content:
+                                        Text('Error adding tourist spot: $e')),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  TextWidget(
+                    text: 'Existing Tourist Spots',
+                    fontSize: 16,
+                    color: black,
+                    fontFamily: 'Medium',
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: currentSpots.length,
+                      itemBuilder: (context, index) {
+                        final spot = currentSpots[index];
+                        return Card(
+                          child: ListTile(
+                            title: Text(spot['name']),
+                            subtitle: Text('Town: ${spot['town']}'),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () async {
+                                try {
+                                  await _deleteTouristSpot(
+                                      spot['town'], spot['name']);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                        content: Text(
+                                            '${spot['name']} deleted successfully')),
+                                  );
+                                } catch (e) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                        content: Text(
+                                            'Error deleting tourist spot: $e')),
+                                  );
+                                }
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: TextWidget(
+                  text: 'Close',
+                  fontSize: 14,
+                  color: grey,
+                  fontFamily: 'Regular',
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   List<Map<String, dynamic>> get filteredDialects {
@@ -170,7 +484,7 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
         TextEditingController(text: entry?['meaning'] ?? '');
     final pronunciationController =
         TextEditingController(text: entry?['pronunciation'] ?? '');
-    String town = entry?['town'] ?? towns[1];
+    String town = entry?['town'] ?? (towns.length > 1 ? towns[1] : 'Baler');
     final languageController =
         TextEditingController(text: entry?['language'] ?? '');
     final usageController = TextEditingController(text: entry?['usage'] ?? '');
@@ -249,7 +563,9 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
                         ],
                         onChanged: (val) {
                           if (val != null) {
-                            touristSpotController.text = val;
+                            setState(() {
+                              touristSpotController.text = val;
+                            });
                           }
                         },
                         decoration: const InputDecoration(
@@ -626,6 +942,28 @@ class _CommonDialectsAdminScreenState extends State<CommonDialectsAdminScreen> {
                       color: primary,
                       textColor: white,
                       width: 120,
+                      height: 40,
+                      fontSize: 14,
+                      radius: 8,
+                    ),
+                    const SizedBox(width: 16),
+                    ButtonWidget(
+                      label: 'Manage Towns',
+                      onPressed: () => _showManageTownsDialog(),
+                      color: secondary,
+                      textColor: black,
+                      width: 120,
+                      height: 40,
+                      fontSize: 14,
+                      radius: 8,
+                    ),
+                    const SizedBox(width: 16),
+                    ButtonWidget(
+                      label: 'Manage Tourist Spots',
+                      onPressed: () => _showManageTouristSpotsDialog(),
+                      color: secondary,
+                      textColor: black,
+                      width: 150,
                       height: 40,
                       fontSize: 14,
                       radius: 8,
