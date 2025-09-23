@@ -10,6 +10,7 @@ import 'package:autour_web/screens/health_surveillance_admin_screen.dart';
 import 'package:autour_web/screens/common_dialects_admin_screen.dart';
 import 'package:autour_web/screens/travel_planner_admin_screen.dart';
 import 'package:autour_web/screens/user_management_screen.dart';
+import 'package:autour_web/screens/contact_management_screen.dart';
 import 'package:autour_web/widgets/analytics_graphs.dart';
 // Added imports for PDF generation
 import 'package:pdf/pdf.dart';
@@ -856,6 +857,27 @@ class _HomeScreenState extends State<HomeScreen> {
                             MaterialPageRoute(
                               builder: (context) =>
                                   const UserManagementScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    // Contact Management Card
+                    Visibility(
+                      visible: widget.accountType == 'Super Admin',
+                      child: _buildFeatureCard(
+                        context,
+                        icon: Icons.contacts,
+                        color: Colors.red,
+                        title: 'Emergency Contact Management',
+                        description:
+                            'Manage agency names, emergency contact numbers, and details for emergency purposes.',
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const ContactManagementScreen(),
                             ),
                           );
                         },
