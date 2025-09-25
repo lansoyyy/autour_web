@@ -11,6 +11,7 @@ import 'package:autour_web/screens/common_dialects_admin_screen.dart';
 import 'package:autour_web/screens/travel_planner_admin_screen.dart';
 import 'package:autour_web/screens/user_management_screen.dart';
 import 'package:autour_web/screens/contact_management_screen.dart';
+import 'package:autour_web/screens/people_counting_screen.dart';
 import 'package:autour_web/widgets/analytics_graphs.dart';
 // Added imports for PDF generation
 import 'package:pdf/pdf.dart';
@@ -886,6 +887,31 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 40),
+          // People Counting Feature Card
+          Visibility(
+            visible: widget.accountType == 'Super Admin' ||
+                widget.accountType == 'Admin' ||
+                widget.accountType == 'Police' ||
+                widget.accountType == 'MDRRMO' ||
+                widget.accountType == 'Tourism',
+            child: _buildFeatureCard(
+              context,
+              icon: Icons.people,
+              color: Colors.teal,
+              title: 'People Counting',
+              description:
+                  'Real-time people counting using webcam and AI detection.',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const PeopleCountingScreen(),
+                  ),
+                );
+              },
             ),
           ),
           const SizedBox(height: 40),

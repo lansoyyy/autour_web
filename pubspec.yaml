@@ -48,6 +48,8 @@ dependencies:
   printing: ^5.9.1
   url_launcher: ^6.3.2
   geolocator: ^13.0.1
+  camera_web: ^0.3.0
+  js: ^0.6.7
 
 dev_dependencies:
   flutter_test:

@@ -1,3 +1,5 @@
+import 'dart:html' as html;
+import 'dart:ui_web' as ui_web;
 import 'package:autour_web/screens/home_screen.dart';
 import 'package:autour_web/screens/login_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -5,6 +7,22 @@ import 'package:flutter/material.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Register video element view factory for webcam
+  ui_web.platformViewRegistry.registerViewFactory(
+    'webcam-video',
+    (int viewId) {
+      final videoElement = html.VideoElement()
+        ..id = 'webcam-video'
+        ..autoplay = true
+        ..muted = true
+        ..style.width = '100%'
+        ..style.height = '100%'
+        ..style.objectFit = 'cover';
+      return videoElement;
+    },
+  );
+
   await Firebase.initializeApp(
       options: const FirebaseOptions(
           apiKey: "AIzaSyB1nzEhW1GCS544Sa5UDNLtSojSjSc4__s",

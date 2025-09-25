@@ -32,6 +32,156 @@
 
   <title>autour_web</title>
   <link rel="manifest" href="manifest.json">
+  
+  <!-- TensorFlow.js scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@latest/dist/coco-ssd.min.js"></script>
+  
+  <!-- People counting JavaScript function -->
+  <script>
+    let model = null;
+    let isModelLoading = false;
+    
+    // Load the COCO-SSD model
+    async function loadModel() {
+      console.log('loadModel called');
+      if (model !== null) {
+        console.log('Model already loaded');
+        return model;
+      }
+      if (isModelLoading) {
+        console.log('Model is already loading');
+        // Wait for the model to finish loading
+        return new Promise((resolve) => {
+          const checkModel = setInterval(() => {
+            if (!isModelLoading) {
+              clearInterval(checkModel);
+              resolve(model);
+            }
+          }, 100);
+        });
+      }
+      
+      isModelLoading = true;
+      try {
+        console.log('Loading COCO-SSD model...');
+        model = await cocoSsd.load();
+        console.log('Model loaded successfully');
+        return model;
+      } catch (error) {
+        console.error('Error loading model:', error);
+        console.error('Error details:', error.message);
+        console.error('Error stack:', error.stack);
+        return null;
+      } finally {
+        isModelLoading = false;
+      }
+    }
+    
+    // Count people in the video feed
+    async function countPeople(videoElementId) {
+      console.log('countPeople called with videoElementId:', videoElementId);
+      const videoElement = document.getElementById(videoElementId);
+      if (!videoElement) {
+        console.error('Video element not found with ID:', videoElementId);
+        return 0;
+      }
+      
+      console.log('Video element found:', videoElement);
+      console.log('Video element ready state:', videoElement.readyState);
+      console.log('Video element videoWidth:', videoElement.videoWidth);
+      console.log('Video element videoHeight:', videoElement.videoHeight);
+      console.log('Video element paused:', videoElement.paused);
+      console.log('Video element ended:', videoElement.ended);
+      console.log('Video element srcObject:', videoElement.srcObject);
+      
+      // Check if the video element has a srcObject
+      if (!videoElement.srcObject) {
+        console.error('Video element does not have a srcObject');
+        return 0;
+      }
+      
+      // Get the video tracks from the srcObject
+      const tracks = videoElement.srcObject.getTracks();
+      if (tracks.length === 0) {
+        console.error('No video tracks found');
+        return 0;
+      }
+      
+      console.log('Video tracks found:', tracks.length);
+      
+      // Load model if not already loaded
+      const detectionModel = await loadModel();
+      if (!detectionModel) {
+        console.error('Model not available');
+        return 0;
+      }
+      
+      console.log('Model loaded successfully');
+      
+      try {
+        // Check if video is ready
+        console.log('Checking video readiness...');
+        console.log('Video ready state value:', videoElement.readyState);
+        console.log('Video ready state constants:');
+        console.log('  HAVE_NOTHING (0):', 0);
+        console.log('  HAVE_METADATA (1):', 1);
+        console.log('  HAVE_CURRENT_DATA (2):', 2);
+        console.log('  HAVE_FUTURE_DATA (3):', 3);
+        console.log('  HAVE_ENOUGH_DATA (4):', 4);
+        
+        // Force the video to play if it's not already
+        if (videoElement.paused) {
+          console.log('Video is paused, attempting to play...');
+          try {
+            await videoElement.play();
+            console.log('Video play() called successfully');
+          } catch (e) {
+            console.error('Error playing video:', e);
+            return 0;
+          }
+        }
+        
+        // Wait a bit for the video to start playing
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Check video dimensions again
+        console.log('Video dimensions after playing:', videoElement.videoWidth, 'x', videoElement.videoHeight);
+        
+        if (videoElement.readyState < 2 || videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+          console.log('Video not ready yet. Ready state:', videoElement.readyState, 'Width:', videoElement.videoWidth, 'Height:', videoElement.videoHeight);
+          return 0;
+        }
+        
+        // Run detection
+        console.log('Running detection on video element...');
+        console.log('Video element ready state:', videoElement.readyState);
+        console.log('Video element videoWidth:', videoElement.videoWidth);
+        console.log('Video element videoHeight:', videoElement.videoHeight);
+        console.log('Video element paused:', videoElement.paused);
+        console.log('Video element ended:', videoElement.ended);
+        
+        const predictions = await detectionModel.detect(videoElement);
+        console.log('Detection completed. Predictions:', predictions);
+        
+        // Filter for "person" class and count
+        const peopleCount = predictions.filter(prediction => prediction.class === 'person').length;
+        console.log('People count:', peopleCount);
+        
+        return peopleCount;
+      } catch (error) {
+        console.error('Error during detection:', error);
+        console.error('Error details:', error.message);
+        console.error('Error stack:', error.stack);
+        return 0;
+      }
+    }
+    
+    // Check if the model is loaded
+    async function isModelLoaded() {
+      return model !== null;
+    }
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>
