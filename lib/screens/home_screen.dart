@@ -11,7 +11,7 @@ import 'package:autour_web/screens/common_dialects_admin_screen.dart';
 import 'package:autour_web/screens/travel_planner_admin_screen.dart';
 import 'package:autour_web/screens/user_management_screen.dart';
 import 'package:autour_web/screens/contact_management_screen.dart';
-import 'package:autour_web/screens/people_counting_screen.dart';
+import 'package:autour_web/screens/counting_data_screen.dart';
 import 'package:autour_web/widgets/analytics_graphs.dart';
 // Added imports for PDF generation
 import 'package:pdf/pdf.dart';
@@ -901,14 +901,14 @@ class _HomeScreenState extends State<HomeScreen> {
               context,
               icon: Icons.people,
               color: Colors.teal,
-              title: 'People Counting',
+              title: 'Person Counting',
               description:
                   'Real-time people counting using webcam and AI detection.',
               onTap: () {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => const PeopleCountingScreen(),
+                    builder: (context) => const CountingDataScreen(),
                   ),
                 );
               },
